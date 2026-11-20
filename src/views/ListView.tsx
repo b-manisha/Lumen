@@ -25,7 +25,7 @@ interface Group {
   collapsible?: boolean
 }
 
-export function ListView({ view }: { view: Exclude<ViewId, { kind: 'dashboard' | 'matrix' | 'board' | 'delegation' }> }) {
+export function ListView({ view }: { view: Exclude<ViewId, { kind: 'dashboard' | 'matrix' | 'board' | 'delegation' | 'reports' }> }) {
   const tasks = useStore((s) => s.tasks)
   const projects = useStore((s) => s.projects)
   const filters = useFilters()

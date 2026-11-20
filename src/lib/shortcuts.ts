@@ -24,6 +24,7 @@ export const SHORTCUTS: { group: string; items: [string[], string][] }[] = [
       [['G', 'M'], 'Eisenhower matrix'],
       [['G', 'B'], 'Board'],
       [['G', 'A'], 'Delegation (agents)'],
+      [['G', 'R'], 'Agent reports'],
     ],
   },
   {

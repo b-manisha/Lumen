@@ -30,8 +30,10 @@ import { ViewHeader } from '../components/ViewHeader'
 import { FilterBar } from '../components/FilterBar'
 import { TaskCard } from '../components/TaskCard'
 import { QuickAdd } from '../components/QuickAdd'
-import { AgentStatusPill, OWNER_META, OwnerAvatar } from '../components/Owner'
+import { AgentStatusPill, OWNER_META, OwnerAvatar, OwnerGlyph } from '../components/Owner'
 import { Button, Tip } from '../components/ui'
+import { CardLiveProgress } from '../components/LiveProgress'
+import { useLiveStatus, useLiveTeam, type TeamHire } from '../lib/agentRun'
 
 const PILES: Owner[] = ['human', 'manager', 'junior']
 const STATUS_ORDER: (AgentStatus | 'none')[] = ['review', 'returned', 'working', 'queued', 'approved', 'none']
@@ -61,7 +63,8 @@ export function DelegationView() {
   const resortAll = useStore((s) => s.resortAll)
   const filters = useFilters()
   const setVisible = useUI((s) => s.setVisible)
-  const [status, setStatus] = useState<StatusFilter>('all')
+  const status = useUI((s) => s.delegationStatus)
+  const setStatus = useUI((s) => s.setDelegationStatus)
   const [activeId, setActiveId] = useState<string | null>(null)
 
   const open = useMemo(() => tasks.filter(isOpen), [tasks])
@@ -318,21 +321,47 @@ function Pile({
 }
 
 function CardFooter({ task, locked }: { task: Task; locked: boolean }) {
+  const live = useLiveStatus(task.id)
+  const team = useLiveTeam(task.id)
+  const status = live && (!task.agent || task.agent.status === 'queued') ? 'working' : task.agent?.status
   return (
-    <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
-      {task.agent && <AgentStatusPill status={task.agent.status} />}
-      <span className="inline-flex min-w-0 items-center gap-1 text-[11px] leading-[15px] text-faint">
-        {locked && <Lock className="size-2.5 shrink-0" aria-label="Human only" />}
-        <span className="min-w-0 truncate" title={task.sortReason}>
-          {task.sortReason || (task.ownerSource === 'manual' ? 'Set by you' : '')}
+    <>
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
+        {status && <AgentStatusPill status={status} />}
+        {live && team && team.length > 0 && <HireStack hires={team} />}
+        <span className="inline-flex min-w-0 items-center gap-1 text-[11px] leading-[15px] text-faint">
+          {locked && <Lock className="size-2.5 shrink-0" aria-label="Human only" />}
+          <span className="min-w-0 truncate" title={task.sortReason}>
+            {task.sortReason || (task.ownerSource === 'manual' ? 'Set by you' : '')}
+          </span>
         </span>
+      </div>
+      {live && <CardLiveProgress status={live} />}
+    </>
+  )
+}
+
+/** Small stacked avatars for the hires on a Manager task that's in progress. */
+function HireStack({ hires }: { hires: TeamHire[] }) {
+  return (
+    <Tip content={hires.map((h) => `${h.title}${h.done ? ' ✓' : ''}`).join(' · ')}>
+      <span className="inline-flex items-center gap-1" tabIndex={0} aria-label={`${hires.length} hires`}>
+        <span className="flex -space-x-1.5">
+          {hires.slice(0, 4).map((h) => (
+            <span key={h.hireId} className={cn('rounded-full ring-2 ring-[var(--surface)]', h.done && 'opacity-60')}>
+              <OwnerGlyph owner={h.role} size={16} tip={null} />
+            </span>
+          ))}
+        </span>
+        <span className="tnum font-mono text-[10.5px] text-faint">{hires.length}</span>
       </span>
-    </div>
+    </Tip>
   )
 }
 
 function DraggableCard({ task, hidden, locked }: { task: Task; hidden: boolean; locked: boolean }) {
   const { attributes, listeners, setNodeRef } = useDraggable({ id: task.id })
+  const working = !!useLiveStatus(task.id)
   return (
     <motion.div
       layout="position"
@@ -347,7 +376,7 @@ function DraggableCard({ task, hidden, locked }: { task: Task; hidden: boolean; 
         dragging={hidden}
         showOwner={false}
         footer={<CardFooter task={task} locked={locked} />}
-        className={cn(task.agent?.status === 'review' && 'border-[rgba(var(--accent-rgb),0.35)]')}
+        className={cn(task.agent?.status === 'review' && 'border-[rgba(var(--accent-rgb),0.35)]', working && 'border-[rgba(var(--pile-rgb),0.32)]')}
         {...attributes}
         {...listeners}
       />

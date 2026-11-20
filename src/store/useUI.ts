@@ -1,5 +1,8 @@
 import { create } from 'zustand'
-import type { Filters, ViewId } from '../lib/types'
+import type { AgentStatus, Filters, ViewId } from '../lib/types'
+
+/** What the wide report reader shows: one task report, or a run's summary. */
+export type ReaderTarget = { kind: 'report'; taskId: string; reportId: string } | { kind: 'run'; startedAt: string; runId?: string }
 
 export type Overlay = null | 'palette' | 'quickadd' | 'plan' | 'shutdown' | 'settings' | 'shortcuts'
 
@@ -15,6 +18,11 @@ interface UIState {
   mobileNav: boolean
   filters: Filters
   quickAddPrefill: string
+  /** Delegation view's agent-status filter (lifted here so the status bar can deep-link to "review") */
+  delegationStatus: 'all' | AgentStatus
+  reader: ReaderTarget | null
+  openReader: (r: ReaderTarget | null) => void
+  setDelegationStatus: (s: 'all' | AgentStatus) => void
   setView: (v: ViewId) => void
   open: (o: Overlay, prefill?: string) => void
   close: () => void
@@ -44,6 +52,7 @@ export function hashToView(hash: string): ViewId {
     case 'matrix':
     case 'board':
     case 'delegation':
+    case 'reports':
       return { kind }
     case 'project':
       return id ? { kind: 'project', id } : { kind: 'dashboard' }
@@ -63,6 +72,10 @@ export const useUI = create<UIState>()((set) => ({
   mobileNav: false,
   filters: EMPTY_FILTERS,
   quickAddPrefill: '',
+  delegationStatus: 'all',
+  reader: null,
+  openReader: (reader) => set({ reader }),
+  setDelegationStatus: (delegationStatus) => set({ delegationStatus }),
   setView: (view) => {
     if (typeof window !== 'undefined') {
       const h = viewToHash(view)

@@ -36,6 +36,9 @@ import { classify } from '../lib/delegate'
 import { toast } from 'sonner'
 import { AgentStatusPill, OWNER_META, OwnerGlyph } from './Owner'
 import { Markdown } from './Markdown'
+import { CardLiveProgress } from './LiveProgress'
+import { AgentReportView, NoReport } from './AgentReport'
+import { useLiveStatus } from '../lib/agentRun'
 
 export function TaskDetail() {
   const editingId = useUI((s) => s.editingId)
@@ -452,6 +455,8 @@ function OwnerRow({ task }: { task: Task }) {
   const resetOwner = useStore((s) => s.resetOwner)
   const projects = useStore((s) => s.projects)
   const locked = classify({ title: task.title, tags: task.tags, project: projects.find((p) => p.id === task.projectId)?.name }).locked
+  const live = useLiveStatus(task.id)
+  const agentStatus = live && task.agent?.status === 'queued' ? 'working' : task.agent?.status
   return (
     <div className="grid grid-cols-[112px_1fr] items-start gap-3 py-1.5">
       <div className="flex h-7 items-center gap-2 text-xs text-faint [&>svg]:size-3.5">
@@ -480,7 +485,7 @@ function OwnerRow({ task }: { task: Task }) {
           }))}
         />
         <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-faint">
-          {task.agent && task.owner !== 'human' && <AgentStatusPill status={task.agent.status} />}
+          {agentStatus && task.owner !== 'human' && <AgentStatusPill status={agentStatus} />}
           {locked && <Lock className="size-3" aria-label="Human only" />}
           <span className="min-w-0">{task.sortReason}</span>
           <span className="text-faint/70">·</span>
@@ -492,6 +497,11 @@ function OwnerRow({ task }: { task: Task }) {
             <span>Auto-sorted</span>
           )}
         </div>
+        {live && task.owner !== 'human' && (
+          <div className="max-w-[320px]">
+            <CardLiveProgress status={live} />
+          </div>
+        )}
       </div>
     </div>
   )
@@ -503,6 +513,7 @@ function AgentOutput({ task }: { task: Task }) {
   const takeOver = useStore((s) => s.takeOver)
   const [sending, setSending] = useState(false)
   const [note, setNote] = useState('')
+  const [tab, setTab] = useState<'deliverable' | 'report'>('deliverable')
   const noteRef = useRef<HTMLTextAreaElement>(null)
   // autoFocus is unreliable inside the drawer's focus scope while the panel animates in
   useEffect(() => {
@@ -558,8 +569,53 @@ function AgentOutput({ task }: { task: Task }) {
         </div>
       )}
 
-      <div className="max-h-[420px] overflow-y-auto px-3.5 py-3">
-        <Markdown source={agent.output ?? ''} />
+      <div role="tablist" aria-label="Agent output" className="flex items-center gap-1 border-b border-line px-2.5">
+        {(
+          [
+            ['deliverable', 'Deliverable'],
+            ['report', 'Report'],
+          ] as const
+        ).map(([id, label]) => (
+          <button
+            key={id}
+            role="tab"
+            aria-selected={tab === id}
+            onClick={() => setTab(id)}
+            className={cn('press relative h-9 px-2 text-[12px] font-medium', tab === id ? 'text-fg' : 'text-faint hover:text-muted')}
+          >
+            <span className="inline-flex items-center gap-1.5">
+              {label}
+              {id === 'report' && agent.report?.decisionsForYou.length ? (
+                <span className="tnum rounded-full px-1 font-mono text-[10px]" style={{ color: 'var(--cho)', background: 'color-mix(in srgb, var(--cho) 12%, transparent)' }}>
+                  {agent.report.decisionsForYou.length}
+                </span>
+              ) : null}
+              {id === 'report' && agent.report?.team?.length ? <span className="tnum font-mono text-[10px] text-faint">· {agent.report.team.length} hires</span> : null}
+            </span>
+            {tab === id && (
+              <motion.span layoutId={`agent-tab-${task.id}`} className="absolute inset-x-1.5 -bottom-px h-[2px] rounded-full" style={{ background: tone }} transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }} />
+            )}
+          </button>
+        ))}
+      </div>
+
+      <div className="max-h-[520px] overflow-y-auto px-3.5 py-3" role="tabpanel">
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.div
+            key={tab}
+            initial={{ opacity: 0, y: 4 }}
+            animate={{ opacity: 1, y: 0, transition: { duration: 0.24, ease: [0.16, 1, 0.3, 1] } }}
+            exit={{ opacity: 0, transition: { duration: 0.1 } }}
+          >
+            {tab === 'deliverable' ? (
+              <Markdown source={agent.output ?? ''} />
+            ) : agent.report ? (
+              <AgentReportView report={agent.report} by={by} hires={agent.hires} />
+            ) : (
+              <NoReport />
+            )}
+          </motion.div>
+        </AnimatePresence>
       </div>
 
       <AnimatePresence initial={false} mode="wait">

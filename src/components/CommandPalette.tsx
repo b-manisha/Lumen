@@ -23,6 +23,7 @@ import {
   Users,
   RefreshCw,
   FileDown,
+  FileText,
 } from 'lucide-react'
 import type { ViewId } from '../lib/types'
 import { cn, compareTasks, dueLabel, isOpen } from '../lib/utils'
@@ -73,6 +74,8 @@ const COMMAND_WORDS = [
   'kanban board',
   'board',
   'delegation',
+  'reports',
+  'agent reports',
   'delegate',
   'agents',
   'piles',
@@ -286,6 +289,13 @@ function PaletteBody() {
                 kbd="G A"
                 onSelect={() => go({ kind: 'delegation' })}
                 keywords={['agents', 'delegate', 'piles', 'manager', 'junior', 'chief human officer']}
+              />
+              <Item
+                icon={<FileText />}
+                label="Agent reports"
+                kbd="G R"
+                onSelect={() => go({ kind: 'reports' })}
+                keywords={['reports', 'agents', 'runs', 'summary', 'decisions', 'senior', 'team']}
               />
               {projects.map((p) => (
                 <Item

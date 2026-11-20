@@ -13,7 +13,7 @@ import { toast } from 'sonner'
 import type { AgentResult } from './types'
 import { allPileFiles, buildQueue } from './piles'
 import { OWNER_LABEL } from './delegate'
-import { useStore } from '../store/useStore'
+import { STORAGE_KEY, useStore } from '../store/useStore'
 import { useUI } from '../store/useUI'
 
 export type BridgeStatus = 'checking' | 'connected' | 'offline'
@@ -65,9 +65,34 @@ function currentFiles() {
 
 let lastSent = ''
 
+/**
+ * Several browser profiles can talk to the same dev server. A profile that had no Lumen data when this
+ * page loaded (a fresh browser, a private window) is "uninitialised": it never writes the queue, so it
+ * can't replace another profile's piles with its empty or demo store. It becomes initialised as soon as
+ * the user changes a task here.
+ */
+const HAD_DATA_AT_BOOT = (() => {
+  try {
+    return localStorage.getItem(STORAGE_KEY) != null
+  } catch {
+    return false
+  }
+})()
+let touched = false
+function storeInitialized() {
+  return useStore.persist.hasHydrated() && (HAD_DATA_AT_BOOT || touched)
+}
+
+/**
+ * `?bridge=read` in the URL: this tab follows runs and picks up its own results but never writes the
+ * queue. Use it for a second browser profile or a demo screen that shouldn't replace your real piles.
+ */
+const READ_ONLY = typeof location !== 'undefined' && new URLSearchParams(location.search).get('bridge') === 'read'
+
 /** Push the open tasks to piles/. Skips the request when nothing changed since the last sync. */
 export async function syncPiles(force = false): Promise<boolean> {
   if (!BRIDGE_AVAILABLE) return false
+  if (READ_ONLY || !storeInitialized()) return false
   const { tasks, projects } = useStore.getState()
   const queue = buildQueue(tasks, projects)
   const signature = JSON.stringify(queue.tasks)
@@ -77,6 +102,7 @@ export async function syncPiles(force = false): Promise<boolean> {
     await api('/api/piles', {
       queue,
       markdown: { human: files['human.md'], manager: files['manager.md'], junior: files['junior.md'] },
+      initialized: true,
     })
     lastSent = signature
     useBridge.setState({ lastSync: Date.now() })
@@ -137,10 +163,13 @@ export async function pollResults(): Promise<void> {
     useBridge.setState({ lastPoll: Date.now() })
     setStatus('connected')
     if (wasOffline) void syncPiles(true)
-    if (!data.results.length) return
-    const summary = useStore.getState().applyAgentResults(data.results)
+    // only take results for tasks this browser's store has: another profile's results stay on disk for it
+    const ids = new Set(useStore.getState().tasks.map((t) => t.id))
+    const mine = data.results.filter((r) => ids.has(r.taskId))
+    if (!mine.length) return
+    const summary = useStore.getState().applyAgentResults(mine)
     announce(summary)
-    await api('/api/piles/results/ack', { files: data.results.map((r) => r.file).filter(Boolean) })
+    await api('/api/piles/results/ack', { files: mine.map((r) => r.file).filter(Boolean) })
   } catch {
     setStatus('offline')
   } finally {
@@ -158,6 +187,7 @@ export function useAgentBridge() {
 
     const unsub = useStore.subscribe((s, prev) => {
       if (s.tasks === prev.tasks && s.projects === prev.projects) return
+      if (useStore.persist.hasHydrated()) touched = true
       window.clearTimeout(timer)
       timer = window.setTimeout(() => void syncPiles(), SYNC_DEBOUNCE)
     })

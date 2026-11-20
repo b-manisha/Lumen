@@ -1,3 +1,7 @@
+import type { AgentReport, HireOutput } from './reportMd'
+
+export type { AgentReport, Confidence, HireOutput, HireQuality, HireRole, ReportSource, TeamMember } from './reportMd'
+
 export type Priority = 1 | 2 | 3 | 4
 export type Energy = 'high' | 'low'
 export type Status = 'todo' | 'doing' | 'done'
@@ -37,6 +41,25 @@ export interface AgentState {
   note?: string
   updatedAt: number
   by?: AgentRole
+  /** detailed report that came with the current output */
+  report?: AgentReport
+  /** outputs of the Manager's hires for the current output */
+  hires?: HireOutput[]
+}
+
+/** One agent result with a report, kept on the task (newest last) for the Reports view. */
+export interface StoredReport {
+  id: string
+  by: AgentRole
+  status: 'review' | 'returned' | 'handed'
+  output: string
+  note?: string
+  report: AgentReport
+  hires?: HireOutput[]
+  runId?: string
+  /** ISO start of the run that produced it (locates the run summary file) */
+  runStartedAt?: string
+  receivedAt: number
 }
 
 export interface Task {
@@ -67,6 +90,8 @@ export interface Task {
   /** short explanation, e.g. "Phone call → needs you" */
   sortReason: string
   agent?: AgentState
+  /** detailed agent reports received for this task (newest last) */
+  reports?: StoredReport[]
   demo?: boolean
 }
 
@@ -109,6 +134,7 @@ export type ViewId =
   | { kind: 'matrix' }
   | { kind: 'board' }
   | { kind: 'delegation' }
+  | { kind: 'reports' }
   | { kind: 'project'; id: string }
 
 export interface Filters {
@@ -132,6 +158,13 @@ export interface AgentResult {
   owner?: Owner
   /** subtasks proposed by the agent; appended if not already present */
   subtasks?: string[]
+  /** detailed report (validated with normalizeReport before use) */
+  report?: unknown
+  /** set by the bridge: the run that produced this result */
+  runId?: string
+  runStartedAt?: string
+  /** set by the bridge for Manager results: its hires' outputs (piles/teams/<taskId>/*.json) */
+  hires?: unknown[]
   /** result file name (set by the bridge) */
   file?: string
 }

@@ -47,7 +47,7 @@ All motion respects `prefers-reduced-motion`.
 | `⌘K` / `Ctrl K` | Command menu |
 | `Q` or `N` | Quick add |
 | `/` | Focus the filter box |
-| `G` then `D` `I` `T` `U` `L` `M` `B` `A` | Go to Dashboard, Inbox, Today, Upcoming, Logbook, Matrix, Board, Delegation |
+| `G` then `D` `I` `T` `U` `L` `M` `B` `A` `R` | Go to Dashboard, Inbox, Today, Upcoming, Logbook, Matrix, Board, Delegation, Reports |
 | `J` / `K` (or arrow keys) | Move the selection |
 | `X` or `Space` | Complete the selected task |
 | `E` or `Enter` | Edit the selected task |
@@ -103,11 +103,20 @@ The browser can't write files, so `plugins/piles.ts` adds a dev-only API to the 
 | `GET /api/piles` | Health check (drives the connected indicator) |
 | `POST /api/piles` | Writes `piles/queue.json` and `piles/{human,manager,junior}.md` from the open tasks |
 | `GET /api/piles/results` | Returns `piles/results/*.json` |
-| `POST /api/piles/results/ack` | Moves processed result files to `piles/results/processed/` |
+| `POST /api/piles/results/ack` | Moves processed result files to `piles/results/processed/` and deletes their `piles/status/` progress files |
+| `GET /api/piles/status` | Live run progress: `piles/run.json` + `piles/status/*.json` + Manager teams (`piles/teams/`), with roll-up, stale flags, pending results and elapsed times. Writes the run summary report when a run ends |
+| `GET /api/piles/reports/run?startedAt=` | A run's summary report (markdown) |
+| `POST /api/piles/run/dismiss`, `POST /api/piles/status/clear` | Dismiss an abandoned run; clear a stalled task from the run |
 
-The app syncs the queue about a second after any change and polls for results every 5 s while the tab is visible. A `returned` result moves the task to your pile with the agent's note as the reason; manager-proposed subtasks are added; new outputs pop a toast. In a production build there is no bridge: the view shows **Offline** with **Export** buttons for the same four files. `piles/` is git-ignored (it is personal task data) except `piles/README.md`, which documents the file formats.
+The app syncs the queue about a second after any change and polls for results every 5 s while the tab is visible. A `returned` result moves the task to your pile with the agent's note as the reason; manager-proposed subtasks are added; new outputs pop a toast. Several browser profiles can share one dev server: each only picks up results for its own tasks, a profile with no Lumen data never writes the queue, and opening Lumen with `?bridge=read` (e.g. `http://localhost:5173/?bridge=read`) makes a tab follow runs without ever writing the queue. In a production build there is no bridge: the view shows **Offline** with **Export** buttons for the same four files. `piles/` is git-ignored (it is personal task data) except `piles/README.md`, which documents the file formats.
 
 ### Running the agents
+
+**Reports**: every agent result comes with a detailed report (summary, approach, sources, assumptions, decisions for you, risks, confidence, model, timing, handoffs, and for the Manager its team). In the task drawer the agent output has **Deliverable** and **Report** tabs. The **Reports** view (`G R`, sidebar, ⌘K) lists every report by run with search and filters (agent, confidence, has decisions, used Seniors), and opens each in a wide reader with **Copy as markdown** and **Download .md**. Markdown copies are also written to `piles/reports/` (one per task plus a run summary per run).
+
+**Teams**: the Manager can hire **Senior** agents (rose, award glyph: deep research, analysis, strategy) and **Junior** agents for a task, at most 4 per task and one revision round each. The orchestrator spawns them, because subagents can't spawn subagents. The status bar and its panel show the team as a small org tree with per-hire progress, Delegation cards show stacked hire avatars, and the Report tab has a Team section (click a hire for its own output and report).
+
+**Agent status bar**: a slim footer in every view. Idle, it shows the last run ("Last run 2:04 PM · 5 done"), how many outputs await your review (click to jump to the Delegation view filtered to review) and the next scheduled run (`SCHEDULE` in `src/lib/agentRun.ts`, 9:00 and 14:00). While agents work it shows a live dot, "3 of 5 done" with an overall progress bar, and a chip per agent ("Manager · Researching 'Standing desk options' 50%"). Click it for every task in the run, grouped by agent, with phase, message, progress, elapsed time and state; click a row to open the task. Delegation cards show the same live progress. Agents report progress through `piles/run.json` and `piles/status/<taskId>.json` (format in `piles/README.md`). Try it with `npm run sim:run`. In a production build the bar shows *Agents offline*. A run with no update for 30 minutes shows *Last run didn't finish* with **Dismiss**; stalled tasks can be cleared from the panel. `npm run sim:clean` removes a simulation's files.
 
 With the dev server running, ask Claude Code in this folder to **"run the piles"** (or "run my agents"). The project skill `.claude/skills/run-piles/SKILL.md` reads the queue, spawns a Manager subagent (Opus) and Junior subagents (Sonnet/Haiku), writes one `piles/results/<taskId>.json` per task, and summarises. Agents never send messages, buy, book, sign in, enter credentials, delete anything or act as you. Those tasks come back to your pile with a note on what is prepared and what you need to do.
 

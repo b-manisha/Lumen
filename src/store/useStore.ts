@@ -2,6 +2,8 @@ import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
 import { nanoid } from 'nanoid'
 import type {
+  HireOutput,
+  StoredReport,
   AgentResult,
   AgentState,
   DateKey,
@@ -16,12 +18,13 @@ import type {
   TaskDraft,
   Theme,
 } from '../lib/types'
+import { normalizeHire, normalizeReport } from '../lib/reportMd'
 import { nextOccurrence } from '../lib/recurrence'
 import { buildSeed } from '../lib/seed'
 import { autoOwnerFields, classify, OWNER_LABEL } from '../lib/delegate'
 import { isToday, isValidKey, PROJECT_COLORS, todayKey, toKey } from '../lib/utils'
 
-export const SCHEMA_VERSION = 2
+export const SCHEMA_VERSION = 3
 export const STORAGE_KEY = 'lumen:store'
 
 export interface DataState {
@@ -114,6 +117,9 @@ function bump(map: Record<DateKey, DayActivity>, key: DateKey, field: keyof DayA
 
 const OWNERS: Owner[] = ['human', 'manager', 'junior']
 const AGENT_STATUSES = ['queued', 'working', 'review', 'returned', 'approved'] as const
+
+/** reports kept per task (oldest dropped first) */
+const MAX_REPORTS = 12
 
 function shorten(s: string, n = 90) {
   const first = s.trim().split(/(?<=[.!?])\s/)[0] ?? s
@@ -449,6 +455,9 @@ export const useStore = create<DataState & Actions>()(
                   .map((title) => ({ id: nanoid(8), title, done: false }))
                 next.subtasks = [...t.subtasks, ...add]
               }
+              const report = normalizeReport(r.report)
+              const hires = (r.hires ?? []).map((h) => normalizeHire(h)).filter((h): h is HireOutput => !!h)
+              const extra = { report, hires: hires.length ? hires : undefined }
               if (r.status === 'working') {
                 next.agent = { ...(t.agent ?? {}), status: 'working', by: r.by, updatedAt: now }
                 out.working.push(t.id)
@@ -458,7 +467,7 @@ export const useStore = create<DataState & Actions>()(
                   owner: 'human',
                   ownerSource: 'manual',
                   sortReason: r.note ? shorten(r.note) : 'Returned by the agent',
-                  agent: { status: 'returned', output: r.output, note: r.note, by: r.by, updatedAt: now },
+                  agent: { status: 'returned', output: r.output, note: r.note, by: r.by, updatedAt: now, ...extra },
                 }
                 out.returned.push(t.id)
               } else if (r.owner && r.owner !== t.owner && !sortOf(t).locked) {
@@ -468,12 +477,28 @@ export const useStore = create<DataState & Actions>()(
                   owner: r.owner,
                   ownerSource: 'manual',
                   sortReason: `Handed to ${OWNER_LABEL[r.owner]} by ${OWNER_LABEL[r.by]}`,
-                  agent: { status: 'queued', output: r.output, note: r.note, by: r.by, updatedAt: now },
+                  agent: { status: 'queued', output: r.output, note: r.note, by: r.by, updatedAt: now, ...extra },
                 }
                 out.handed.push(t.id)
               } else {
-                next.agent = { status: 'review', output: r.output ?? '', note: r.note, by: r.by, updatedAt: now }
+                next.agent = { status: 'review', output: r.output ?? '', note: r.note, by: r.by, updatedAt: now, ...extra }
                 out.review.push(t.id)
+              }
+              if (report && r.status !== 'working') {
+                const kind: StoredReport['status'] = next.agent?.status === 'returned' ? 'returned' : next.agent?.status === 'queued' ? 'handed' : 'review'
+                const entry: StoredReport = {
+                  id: nanoid(8),
+                  by: r.by,
+                  status: kind,
+                  output: r.output ?? '',
+                  note: r.note,
+                  report,
+                  hires: extra.hires,
+                  runId: r.runId,
+                  runStartedAt: r.runStartedAt,
+                  receivedAt: now,
+                }
+                next.reports = [...(t.reports ?? []), entry].slice(-MAX_REPORTS)
               }
               return next
             }),
@@ -502,6 +527,7 @@ export const useStore = create<DataState & Actions>()(
       migrate: (persisted, version) => {
         // v0 → v1: no prior public schema; normalise whatever is there.
         // v1 → v2: delegation fields (owner, ownerSource, sortReason, agent) are added by auto-sort in migrate().
+        // v2 → v3: optional agent reports (task.reports, agent.report, agent.hires) are validated in migrate().
         void version
         return migrate(persisted as Partial<DataState>)
       },
@@ -533,6 +559,8 @@ function migrate(d: Partial<DataState>): DataState {
     status: t.status === 'done' || t.status === 'doing' ? t.status : 'todo',
     // v1 → v2: delegation. Tasks without an owner are auto-sorted into a pile.
     ...migrateOwner(t, projects),
+    // v2 → v3: detailed agent reports (optional; dropped if malformed)
+    reports: Array.isArray(t.reports) ? t.reports.filter((x) => x && typeof x === 'object' && x.report && typeof x.report.summary === 'string') : undefined,
   })) as Task[]
   return {
     ...base,

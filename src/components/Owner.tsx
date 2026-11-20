@@ -1,15 +1,15 @@
 import type { ReactNode } from 'react'
-import type { AgentStatus, Owner } from '../lib/types'
+import type { AgentStatus, HireRole, Owner } from '../lib/types'
 import { AGENT_STATUS_LABEL } from '../lib/piles'
 import { cn } from '../lib/utils'
 import { Tip } from './ui'
-import { OWNER_META } from './ownerMeta'
+import { OWNER_META, roleMeta } from './ownerMeta'
 
 export { OWNER_META }
 
 /** Tiny owner mark used on task rows and cards. */
-export function OwnerGlyph({ owner, size = 16, tip, className }: { owner: Owner; size?: number; tip?: ReactNode; className?: string }) {
-  const m = OWNER_META[owner]
+export function OwnerGlyph({ owner, size = 16, tip, className }: { owner: Owner | HireRole; size?: number; tip?: ReactNode; className?: string }) {
+  const m = roleMeta(owner)
   const glyph = (
     <span
       role="img"
@@ -30,8 +30,8 @@ export function OwnerGlyph({ owner, size = 16, tip, className }: { owner: Owner;
 }
 
 /** Larger avatar for pile headers: a soft gradient tile with a lit top edge. */
-export function OwnerAvatar({ owner, size = 34 }: { owner: Owner; size?: number }) {
-  const m = OWNER_META[owner]
+export function OwnerAvatar({ owner, size = 34 }: { owner: Owner | HireRole; size?: number }) {
+  const m = roleMeta(owner)
   return (
     <span
       aria-hidden

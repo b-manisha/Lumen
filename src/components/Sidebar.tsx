@@ -18,6 +18,7 @@ import {
   Sunset,
   Timer,
   Users,
+  FileText,
 } from 'lucide-react'
 import type { ViewId } from '../lib/types'
 import { cn, isOpen, isToday, modKey, todayKey } from '../lib/utils'
@@ -202,6 +203,7 @@ function SidebarInner({ collapsed, onToggle, mobile }: { collapsed: boolean; onT
             kbd="G A"
             accent
           />
+          <NavItem collapsed={collapsed} mobile={mobile} to={{ kind: 'reports' }} icon={<FileText />} label="Reports" kbd="G R" />
         </NavSection>
 
         <NavSection collapsed={collapsed} title="Rituals">

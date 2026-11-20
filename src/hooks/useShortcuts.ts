@@ -14,6 +14,7 @@ const GO: Record<string, ViewId> = {
   m: { kind: 'matrix' },
   b: { kind: 'board' },
   a: { kind: 'delegation' },
+  r: { kind: 'reports' },
 }
 
 /** Global keyboard layer: ⌘K, Q, G-chords, J/K selection, X/E/1-4/⌫, P, F, ⇧S, ⇧T, ⌘Z, ?, /. */

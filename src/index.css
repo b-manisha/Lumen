@@ -47,6 +47,9 @@
   --mgr-rgb: 124, 127, 255;
   --jr: #2dd4bf;
   --jr-rgb: 45, 212, 191;
+  /* Senior agents (hired by the Manager): rose, between the CHO's warmth and the Manager's violet */
+  --sr: #f472b6;
+  --sr-rgb: 244, 114, 182;
 }
 
 [data-theme='light'] {
@@ -91,6 +94,8 @@
   --mgr-rgb: 94, 92, 230;
   --jr: #0f9488;
   --jr-rgb: 15, 148, 136;
+  --sr: #d6336c;
+  --sr-rgb: 214, 51, 108;
 }
 
 @theme inline {
@@ -117,6 +122,7 @@
   --color-cho: var(--cho);
   --color-mgr: var(--mgr);
   --color-jr: var(--jr);
+  --color-sr: var(--sr);
 
   --font-sans: 'Inter Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-display: 'Inter Tight Variable', 'Inter Variable', ui-sans-serif, system-ui, sans-serif;

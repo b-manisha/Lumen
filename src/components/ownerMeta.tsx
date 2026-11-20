@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
-import { BrainCircuit, Bot, Crown } from 'lucide-react'
-import type { Owner } from '../lib/types'
+import { Award, BrainCircuit, Bot, Crown } from 'lucide-react'
+import type { HireRole, Owner } from '../lib/types'
 
 export const OWNER_META: Record<Owner, { label: string; long: string; short: string; color: string; rgb: string; icon: ReactNode; blurb: string }> = {
   human: {
@@ -30,4 +30,22 @@ export const OWNER_META: Record<Owner, { label: string; long: string; short: str
     icon: <Bot />,
     blurb: 'Drafts, summarises, looks things up and formats',
   },
+}
+
+type Meta = (typeof OWNER_META)[Owner]
+
+/** Senior agents are hired by the Manager for judgement-heavy or specialist work (never a pile of their own). */
+export const SENIOR_META: Meta = {
+  label: 'Senior agent',
+  long: 'Senior agent',
+  short: 'Senior',
+  color: 'var(--sr)',
+  rgb: 'var(--sr-rgb)',
+  icon: <Award />,
+  blurb: 'Deep research, analysis, strategy and specialist evaluation',
+}
+
+/** Meta for any agent role, including hires. */
+export function roleMeta(role: Owner | HireRole): Meta {
+  return role === 'senior' ? SENIOR_META : OWNER_META[role]
 }

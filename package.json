@@ -8,7 +8,10 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "test:sort": "node scripts/test-sort.ts"
+    "test:sort": "node scripts/test-sort.ts",
+    "sim:run": "node scripts/sim-run.ts",
+    "sim:clean": "node scripts/sim-run.ts --reset",
+    "run:report": "node scripts/run-report.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

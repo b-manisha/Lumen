@@ -8,6 +8,9 @@ import { useStore } from './store/useStore'
 import { hashToView, useUI } from './store/useUI'
 import { useShortcuts } from './hooks/useShortcuts'
 import { useAgentBridge } from './lib/bridge'
+import { useRunPolling } from './lib/agentRun'
+import { AgentStatusBar } from './components/AgentStatusBar'
+import { ReportReader } from './components/ReportReader'
 import { Sidebar } from './components/Sidebar'
 import { CommandPalette } from './components/CommandPalette'
 import { TaskDetail } from './components/TaskDetail'
@@ -22,6 +25,7 @@ import { Shutdown } from './views/Shutdown'
 const BoardView = lazy(() => import('./views/BoardView').then((m) => ({ default: m.BoardView })))
 const MatrixView = lazy(() => import('./views/MatrixView').then((m) => ({ default: m.MatrixView })))
 const DelegationView = lazy(() => import('./views/DelegationView').then((m) => ({ default: m.DelegationView })))
+const ReportsView = lazy(() => import('./views/ReportsView').then((m) => ({ default: m.ReportsView })))
 
 function viewKey(v: ViewId) {
   return v.kind === 'project' ? `project-${v.id}` : v.kind
@@ -37,6 +41,8 @@ function CurrentView({ view }: { view: ViewId }) {
       return <MatrixView />
     case 'delegation':
       return <DelegationView />
+    case 'reports':
+      return <ReportsView />
     default:
       return <ListView view={view} />
   }
@@ -47,6 +53,7 @@ export default function App() {
   const view = useUI((s) => s.view)
   useShortcuts()
   useAgentBridge()
+  useRunPolling()
 
   // Theme → <html data-theme>
   useEffect(() => {
@@ -80,35 +87,40 @@ export default function App() {
       <Tooltip.Provider delayDuration={350} skipDelayDuration={150}>
         <div className="ambient" aria-hidden />
         <div className="noise" aria-hidden />
-        <div className="relative z-10 flex h-full">
-          <Sidebar />
-          <main id="main-scroll" className="relative min-w-0 flex-1 overflow-y-auto overflow-x-hidden">
-            <div className="px-4 pt-5 sm:px-6 md:px-8 md:pt-8 lg:px-10">
-              <AnimatePresence mode="wait" initial={false}>
-                <motion.div
-                  key={viewKey(view)}
-                  initial={{ opacity: 0, y: 6 }}
-                  animate={{ opacity: 1, y: 0, transition: { duration: 0.36, ease: EXPO_OUT } }}
-                  exit={{ opacity: 0, y: -4, transition: { duration: 0.14 } }}
-                >
-                  <Suspense fallback={<div className="h-[60vh]" />}>
-                    <CurrentView view={view} />
-                  </Suspense>
-                </motion.div>
-              </AnimatePresence>
-            </div>
-          </main>
+        {/* shell: sidebar + main on top, the agent status bar docked underneath (in flow, so it never covers content) */}
+        <div className="relative z-10 flex h-full flex-col">
+          <div className="flex min-h-0 flex-1">
+            <Sidebar />
+            <main id="main-scroll" className="relative min-w-0 flex-1 overflow-y-auto overflow-x-hidden">
+              <div className="px-4 pt-5 sm:px-6 md:px-8 md:pt-8 lg:px-10">
+                <AnimatePresence mode="wait" initial={false}>
+                  <motion.div
+                    key={viewKey(view)}
+                    initial={{ opacity: 0, y: 6 }}
+                    animate={{ opacity: 1, y: 0, transition: { duration: 0.36, ease: EXPO_OUT } }}
+                    exit={{ opacity: 0, y: -4, transition: { duration: 0.14 } }}
+                  >
+                    <Suspense fallback={<div className="h-[60vh]" />}>
+                      <CurrentView view={view} />
+                    </Suspense>
+                  </motion.div>
+                </AnimatePresence>
+              </div>
+            </main>
+          </div>
+          <AgentStatusBar />
         </div>
 
         <CommandPalette />
         <QuickAddDialog />
         <TaskDetail />
+        <ReportReader />
         <PlanDay />
         <Shutdown />
         <SettingsDialog />
         <ShortcutsDialog />
         <FocusMode />
-        <Toaster theme={theme} position="bottom-right" gap={8} offset={20} toastOptions={{ classNames: { toast: 'lumen-toast' } }} />
+        <Toaster theme={theme} position="bottom-right" gap={8} offset={{ bottom: 54, right: 20 }} mobileOffset={{ bottom: 46 }} toastOptions={{ classNames: { toast: 'lumen-toast' } }} />
       </Tooltip.Provider>
     </MotionConfig>
   )
