@@ -33,6 +33,8 @@ import { OWNER_META, roleMeta } from './ownerMeta'
 import { OwnerGlyph } from './Owner'
 import { ProgressTrack } from './LiveProgress'
 import { Tip } from './ui'
+import { RunAgentsButton, StartingContent, StopButton, ViewLogLink } from './RunAgents'
+import { RUN_BUTTON_AVAILABLE, useRunner } from '../lib/runControl'
 
 const AGENTS: AgentRole[] = ['manager', 'junior']
 
@@ -83,7 +85,17 @@ export function AgentStatusBar() {
   const v = useRunView()
   const [open, setOpen] = useState(false)
   const offline = !BRIDGE_AVAILABLE || v.conn === 'offline'
-  const mode: 'offline' | 'running' | 'idle' | 'checking' = offline ? 'offline' : v.conn === 'checking' ? 'checking' : v.active ? 'running' : 'idle'
+  // a run started from Lumen whose orchestrator hasn't written run.json yet
+  const starting = useRunner((s) => !!s.state?.active || s.busy === 'start') && !v.active
+  const mode: 'offline' | 'running' | 'starting' | 'idle' | 'checking' = offline
+    ? 'offline'
+    : v.conn === 'checking'
+      ? 'checking'
+      : v.active
+        ? 'running'
+        : starting
+          ? 'starting'
+          : 'idle'
 
   return (
     <footer
@@ -92,7 +104,7 @@ export function AgentStatusBar() {
     >
       {/* hairline glow along the top edge while agents work */}
       <AnimatePresence>
-        {mode === 'running' && (
+        {(mode === 'running' || mode === 'starting') && (
           <motion.span
             aria-hidden
             className="pointer-events-none absolute inset-x-0 -top-px h-px"
@@ -118,6 +130,14 @@ export function AgentStatusBar() {
                 >
                   {mode === 'offline' ? (
                     <OfflineContent />
+                  ) : mode === 'starting' ? (
+                    <>
+                      <StartingContent />
+                      <span className="ml-auto flex shrink-0 items-center gap-1 pr-1">
+                        <ViewLogLink className="hidden h-[22px] px-1.5 sm:inline-flex" />
+                        <StopButton compact />
+                      </span>
+                    </>
                   ) : (
                     <>
                       <Popover.Trigger asChild>
@@ -136,6 +156,11 @@ export function AgentStatusBar() {
                         </button>
                       </Popover.Trigger>
                       {mode === 'idle' && <LastRun v={v} />}
+                      {mode === 'idle' && (
+                        <span className="ml-1 flex shrink-0 items-center">
+                          <RunAgentsButton variant="bar" />
+                        </span>
+                      )}
                     </>
                   )}
                 </motion.div>
@@ -295,6 +320,7 @@ function lastRunSummary(run: RunInfo | null, rows: RunRow[]): { text: string; to
   const returned = rows.filter((r) => r.state === 'returned').length
   const parts = [`${done} done`]
   if (returned) parts.push(`${returned} returned`)
+  if (run.state === 'failed' && run.stoppedByUser) return { text: `Last run stopped ${when} · ${parts.join(' · ')}` }
   if (run.state === 'failed' && !run.dismissed) return { text: `Last run failed ${when} · ${parts.join(' · ')}`, tone: 'var(--warning)' }
   if (run.abandoned) return { text: `Last run didn’t finish · started ${dayClock(new Date(run.startedAt))}`, tone: 'var(--warning)' }
   return { text: `Last run ${when} · ${parts.join(' · ')}` }
@@ -390,6 +416,7 @@ function NextRun({ now }: { now: Date }) {
 
 function RunPanel({ v, onPick }: { v: View; onPick: () => void }) {
   const edit = useUI((s) => s.edit)
+  const runnerActive = useRunner((s) => !!s.state?.active)
   const run = v.run
   const { done, total, percent } = v.progress
   if (!run) {
@@ -400,14 +427,26 @@ function RunPanel({ v, onPick }: { v: View; onPick: () => void }) {
         </div>
         <div className="text-[13px] font-medium text-fg">No agent runs yet</div>
         <p className="mt-1 text-xs text-pretty text-faint">
-          Ask Claude Code to “run the piles”, or wait for the scheduled run at <span className="tnum font-mono">{dayClock(nextScheduled(v.now))}</span>.
+          {RUN_BUTTON_AVAILABLE ? 'Press Run agents, ask' : 'Ask'} Claude Code to “run the piles”, or wait for the scheduled run at{' '}
+          <span className="tnum font-mono">{dayClock(nextScheduled(v.now))}</span>.
         </p>
+        <ViewLogLink className="mt-2" onOpen={onPick} />
       </div>
     )
   }
   const started = new Date(run.startedAt)
-  const stateLabel = v.active ? 'Running' : run.state === 'failed' ? 'Failed' : run.abandoned ? 'Didn’t finish' : 'Finished'
-  const stateColor = v.active ? 'var(--success)' : run.state === 'failed' || run.abandoned ? 'var(--warning)' : 'var(--text-muted)'
+  const stateLabel = v.active
+    ? 'Running'
+    : run.state === 'failed'
+      ? run.stoppedByUser
+        ? 'Stopped'
+        : run.exitCode != null
+          ? `Failed · exit ${run.exitCode}`
+          : 'Failed'
+      : run.abandoned
+        ? 'Didn’t finish'
+        : 'Finished'
+  const stateColor = v.active ? 'var(--success)' : run.stoppedByUser ? 'var(--text-muted)' : run.state === 'failed' || run.abandoned ? 'var(--warning)' : 'var(--text-muted)'
   return (
     <>
       <div className="border-b border-line px-4 pt-3.5 pb-3">
@@ -428,6 +467,7 @@ function RunPanel({ v, onPick }: { v: View; onPick: () => void }) {
               Dismiss
             </button>
           )}
+          {runnerActive && <StopButton compact />}
         </div>
         <div className="mt-1 flex flex-wrap items-center gap-x-2 text-[11.5px] text-faint">
           <span className="inline-flex items-center gap-1">
@@ -446,6 +486,13 @@ function RunPanel({ v, onPick }: { v: View; onPick: () => void }) {
               </span>
             </>
           )}
+          {run.stoppedByUser && (
+            <>
+              <span>·</span>
+              <span>stopped by you</span>
+            </>
+          )}
+          <ViewLogLink className="ml-auto" onOpen={onPick} />
         </div>
         <ProgressTrack percent={percent} className="mt-2.5" />
       </div>

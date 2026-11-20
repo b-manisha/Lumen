@@ -26,6 +26,8 @@ From `queue.json → tasks`, take tasks where **all** of these hold:
 
 **Skip** tasks whose `agent.status` is `"review"` or `"approved"` (already done, waiting for the CHO) or `"returned"`. Also skip any task that already has a file at `piles/results/<id>.json` (a result is pending pickup).
 
+If your prompt says **"Only run these task ids: …"** (the Lumen Run button sends this when the user unticks some tasks), select only those ids, and still apply every rule above to them. Leave every other task for the next run.
+
 If a selected task has `agent.note` and `agent.previousOutput`, it was **sent back**: the subagent must revise `previousOutput` according to the note, not start from scratch.
 
 If nothing is selected, say so in one line and stop (do not write `run.json`).
@@ -42,7 +44,8 @@ Before spawning any subagent, write `piles/run.json` **atomically** (temp file, 
 ```
 
 - `tasks` lists every selected task with the pile it is in (`by`); `total` is its length.
-- `trigger`: `"scheduled"` when this run was started by the scheduled task (its prompt says "Run the Lumen delegation piles" and nobody is chatting with you), otherwise `"manual"` (the user asked in chat).
+- `trigger`: `"scheduled"` when this run was started by the scheduled task (its prompt says "Run the Lumen delegation piles" and nobody is chatting with you), otherwise `"manual"` (the user asked in chat). A prompt that says `Trigger: manual` (the in-app **Run agents** button, which runs you headless) is always `"manual"`.
+- **Headless runs** (started from the Run button): nobody can answer questions or permission prompts, and tools outside the allow-list are denied. The working directory is already the project root, so run this runbook's commands **exactly as written, one per Bash call**: no `cd …`, `&&`, `;`, pipes or `echo` around them (a chained command is denied as a whole). Use the `python3 -c` one-liners for `run.json` and status files so timestamps come from the real clock; never invent times. Don't ask the user anything: decide, note it in the report, and finish. Always close `run.json`. Tell every subagent the same.
 - You can do it in one command, for example:
 
 ```bash

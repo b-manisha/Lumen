@@ -38,6 +38,10 @@ export interface RunInfo {
   dismissed?: boolean
   /** task ids the user cleared from the run */
   cleared?: string[]
+  /** the user stopped this run from Lumen */
+  stoppedByUser?: boolean
+  /** set by the dev server when the orchestrator exited without closing the run */
+  exitCode?: number
 }
 
 export interface LiveStatus {

@@ -11,6 +11,7 @@ import {
   Keyboard,
   LayoutDashboard,
   Moon,
+  Play,
   Plus,
   Search,
   Settings,
@@ -30,6 +31,7 @@ import { cn, compareTasks, dueLabel, isOpen } from '../lib/utils'
 import { parseQuickAdd } from '../lib/parse'
 import { completeTask, downloadExport, pickImport } from '../lib/actions'
 import { downloadAllPiles } from '../lib/bridge'
+import { RUN_BUTTON_AVAILABLE, requestRunConfirm } from '../lib/runControl'
 import { toast } from 'sonner'
 import { useStore } from '../store/useStore'
 import { useUI } from '../store/useUI'
@@ -80,6 +82,8 @@ const COMMAND_WORDS = [
   'agents',
   'piles',
   're-sort delegation piles',
+  'run agents now',
+  'run',
   'export piles',
 ]
 
@@ -248,6 +252,17 @@ function PaletteBody() {
                 onSelect={run(toggleTheme)}
                 keywords={['theme', 'dark', 'light', 'appearance']}
               />
+              {RUN_BUTTON_AVAILABLE && (
+                <Item
+                  icon={<Play />}
+                  label="Run agents now"
+                  onSelect={run(() => {
+                    setView({ kind: 'delegation' })
+                    requestRunConfirm()
+                  })}
+                  keywords={['run', 'agents', 'piles', 'delegation', 'manager', 'junior', 'start']}
+                />
+              )}
               <Item
                 icon={<RefreshCw />}
                 label="Re-sort delegation piles"

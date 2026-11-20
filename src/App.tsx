@@ -9,6 +9,8 @@ import { hashToView, useUI } from './store/useUI'
 import { useShortcuts } from './hooks/useShortcuts'
 import { useAgentBridge } from './lib/bridge'
 import { useRunPolling } from './lib/agentRun'
+import { useRunnerPolling } from './lib/runControl'
+import { RunLogDrawer } from './components/RunAgents'
 import { AgentStatusBar } from './components/AgentStatusBar'
 import { ReportReader } from './components/ReportReader'
 import { Sidebar } from './components/Sidebar'
@@ -54,6 +56,7 @@ export default function App() {
   useShortcuts()
   useAgentBridge()
   useRunPolling()
+  useRunnerPolling()
 
   // Theme → <html data-theme>
   useEffect(() => {
@@ -115,6 +118,7 @@ export default function App() {
         <QuickAddDialog />
         <TaskDetail />
         <ReportReader />
+        <RunLogDrawer />
         <PlanDay />
         <Shutdown />
         <SettingsDialog />

@@ -17,6 +17,11 @@
  *   GET  /api/piles/reports/run?startedAt=<ISO>   → { path, markdown } of that run's summary report
  *   POST /api/piles/run/dismiss   { runId } → marks an abandoned run `failed` (dismissed) in piles/run.json
  *   POST /api/piles/status/clear  { runId, taskId } → removes a stalled task's status files and hides it
+ *   GET  /api/piles/run/state, POST /api/piles/run, POST /api/piles/run/stop
+ *                                 → the in-app "Run agents" button (see plugins/runner.ts; guarded: localhost,
+ *                                   X-Lumen-Run header, not from a ?bridge=read tab)
+ *
+ * `LUMEN_PILES_DIR` (env) points the bridge at another folder, e.g. a scratch copy for endpoint tests.
  *
  * Only active under `vite` (apply: 'serve'); a production build has no bridge and the app falls back
  * to export buttons.
@@ -27,6 +32,7 @@ import path from 'node:path'
 import type { Plugin } from 'vite'
 import { runReportPath } from '../src/lib/reportMd.ts'
 import { readHires, readRun, readTeamPlan, writeRunReports, writeTaskReport, type TeamPlan } from './reports.ts'
+import { createRunner, handleRunRoute } from './runner.ts'
 
 const MAX_BODY = 5 * 1024 * 1024
 const PILES = ['human', 'manager', 'junior'] as const
@@ -74,6 +80,10 @@ function parseRun(raw: unknown) {
     trigger: raw.trigger === 'scheduled' ? ('scheduled' as const) : ('manual' as const),
     /** set when the user dismissed an abandoned run from the app */
     dismissed: raw.dismissed === true,
+    /** the user pressed Stop on a run started from Lumen (plugins/runner.ts) */
+    stoppedByUser: raw.stoppedByUser === true,
+    /** the orchestrator's exit code when the dev server had to close the run */
+    exitCode: typeof raw.exitCode === 'number' ? raw.exitCode : undefined,
     /** tasks the user cleared from the run (stalled items) */
     cleared: Array.isArray(raw.cleared) ? raw.cleared.map(String) : [],
     total: typeof raw.total === 'number' ? raw.total : tasks.length,
@@ -137,7 +147,7 @@ export function pilesBridge(options: { dir?: string } = {}): Plugin {
     name: 'lumen-piles-bridge',
     apply: 'serve',
     configResolved(config) {
-      root = path.resolve(config.root, options.dir ?? 'piles')
+      root = path.resolve(config.root, process.env.LUMEN_PILES_DIR || options.dir || 'piles')
     },
     configureServer(server) {
       const resultsDir = () => path.join(root, 'results')
@@ -148,11 +158,15 @@ export function pilesBridge(options: { dir?: string } = {}): Plugin {
       let timing: { runId: string; tasks: Record<string, { start: number; end?: number }> } = { runId: '', tasks: {} }
       // run summaries written by this server process (runId:state:finishedAt)
       const summarized = new Set<string>()
+      const runner = createRunner({ root, projectRoot: server.config.root, logger: server.config.logger })
 
       server.middlewares.use(async (req, res, next) => {
         const url = (req.url ?? '').split('?')[0]
         if (!url.startsWith('/api/piles')) return next()
         try {
+          // ── the in-app Run agents button: start / stop / state of a headless orchestrator ──
+          if (await handleRunRoute(runner, url, req, res, readBody, send)) return
+
           // ── health ──
           if (url === '/api/piles' && req.method === 'GET') {
             const pending = await listResultFiles(resultsDir())

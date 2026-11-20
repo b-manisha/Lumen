@@ -87,12 +87,12 @@ function storeInitialized() {
  * `?bridge=read` in the URL: this tab follows runs and picks up its own results but never writes the
  * queue. Use it for a second browser profile or a demo screen that shouldn't replace your real piles.
  */
-const READ_ONLY = typeof location !== 'undefined' && new URLSearchParams(location.search).get('bridge') === 'read'
+export const BRIDGE_READ_ONLY = typeof location !== 'undefined' && new URLSearchParams(location.search).get('bridge') === 'read'
 
 /** Push the open tasks to piles/. Skips the request when nothing changed since the last sync. */
 export async function syncPiles(force = false): Promise<boolean> {
   if (!BRIDGE_AVAILABLE) return false
-  if (READ_ONLY || !storeInitialized()) return false
+  if (BRIDGE_READ_ONLY || !storeInitialized()) return false
   const { tasks, projects } = useStore.getState()
   const queue = buildQueue(tasks, projects)
   const signature = JSON.stringify(queue.tasks)

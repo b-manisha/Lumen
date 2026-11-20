@@ -93,6 +93,7 @@ While a run is in progress the app shows a live status bar (which agent is on wh
 - A status whose `updatedAt` is more than **15 minutes** old while the run is still `running` is shown as **Stalled?** (the expanded panel offers **Clear**, which deletes its status files and lists the task under `run.json → cleared`). A `running` run with no status update for **30 minutes** is treated as abandoned: the bar shows *Last run didn't finish* with **Dismiss**, which marks `run.json` `"state": "failed", "dismissed": true`.
 - Status files older than the current run's `startedAt` are ignored. When the app acknowledges a task's result, the bridge deletes its `status/<taskId>.json`.
 - `run.json` stays after the run (`finished`/`failed`) so the bar can show "Last run 2:04 PM · 5 done".
+- Runs started from Lumen's **Run agents** button may also carry `"exitCode"` (the server closed the run after the orchestrator exited) and `"stoppedByUser": true` (the user pressed Stop).
 
 Row states in the app: **Queued** (no status yet), **Working**, **Done** (result written, ready for review), **Returned to you**, **Stalled?**.
 
@@ -178,6 +179,24 @@ What the app does with a result (it polls every 5 s while the tab is visible):
 
 Processed files are moved to `results/processed/` (timestamped), so a task can receive a new result later. A browser only acknowledges results for tasks in **its own** store, so a second browser profile on the same dev server can't swallow them. A profile that had no Lumen data when it loaded never writes the queue (a genuinely empty queue from an initialised store is still written).
 
+## Written by the dev server (Run button)
+
+| File | What it is |
+|---|---|
+| `logs/run-<timestamp>.log` | Output of a run started with Lumen's **Run agents** button: the CLI's `stream-json` events plus `[lumen …]` lines from the server (start, task list, allow-list, exit code). The app shows it formatted (tool calls, subagents, errors). The last 20 are kept. |
+| `logs/active.json` | The spawned orchestrator's `{ pid, startedAt, log }` while it runs, so a restarted dev server can still stop it |
+| `logs/last-exit.json` | `{ code, signal, at, stoppedByUser, log, ok }` of the last Lumen-started run |
+
+When a Lumen-started orchestrator exits, the server makes sure `run.json` never sticks on `running`: a non-zero exit, or an exit that left `run.json` running, marks it `"state": "failed"` with `"exitCode"`; **Stop** marks it `failed` with `"stoppedByUser": true`. If the process failed before writing `run.json`, the server writes a failed run with no tasks so the status bar shows it.
+
 ## Running the agents
 
-In Claude Code, from the project root, say **"run the piles"** (see `.claude/skills/run-piles/SKILL.md`).
+In Claude Code, from the project root, say **"run the piles"** (see `.claude/skills/run-piles/SKILL.md`). Or press **Run agents** in Lumen's Delegation view: the dev server runs the same runbook headless (`claude -p`, Sonnet orchestrator, scoped allow-list; see the main README).
+
+| Endpoint | Does |
+|---|---|
+| `GET /api/piles/run/state?lines=N` | `{ canRun, reason?, message?, selectable: [{ id, title, by }], active, runActive, pid?, startedAt?, log?, logTail, lastExit?, cli }`. `reason` is `running`, `nothing`, `no-queue` or `cli-missing`; `selectable` uses the runbook's selection rules |
+| `POST /api/piles/run` | `{ taskIds?: string[] }` (a subset of `selectable`; all when omitted) → 202 `{ pid, startedAt, log, tasks }`; 409 `running` / `nothing` / `no-queue`; 500 `cli-missing` |
+| `POST /api/piles/run/stop` | Kills the spawned process tree → 200; 409 when no Lumen-started run is active |
+
+All three require the `X-Lumen-Run: 1` header and a localhost Host/Origin on the dev port; POSTs are refused from a `?bridge=read` tab (`X-Lumen-Mode: read`). Anything else gets 403.

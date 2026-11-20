@@ -34,6 +34,7 @@ import { AgentStatusPill, OWNER_META, OwnerAvatar, OwnerGlyph } from '../compone
 import { Button, Tip } from '../components/ui'
 import { CardLiveProgress } from '../components/LiveProgress'
 import { useLiveStatus, useLiveTeam, type TeamHire } from '../lib/agentRun'
+import { RunAgentsButton } from '../components/RunAgents'
 
 const PILES: Owner[] = ['human', 'manager', 'junior']
 const STATUS_ORDER: (AgentStatus | 'none')[] = ['review', 'returned', 'working', 'queued', 'approved', 'none']
@@ -132,10 +133,11 @@ export function DelegationView() {
           <>
             <BridgeIndicator />
             <Tip content="Re-run auto-sort on every auto-sorted task">
-              <Button size="sm" variant="secondary" icon={<RefreshCw className="size-3.5" />} onClick={onResort}>
-                Re-sort all
+              <Button size="sm" variant="secondary" icon={<RefreshCw className="size-3.5" />} onClick={onResort} aria-label="Re-sort all">
+                <span className="hidden sm:inline">Re-sort all</span>
               </Button>
             </Tip>
+            <RunAgentsButton />
           </>
         }
       >
@@ -414,7 +416,7 @@ function BridgeIndicator() {
             <span>
               Writing <code className="font-mono">piles/</code> for Claude Code
               {ago != null && <span className="text-muted"> · synced {ago < 5 ? 'just now' : `${ago}s ago`}</span>}
-              <span className="block text-[11px] text-faint">Ask Claude Code to “run the piles”.</span>
+              <span className="block text-[11px] text-faint">Press Run agents, or ask Claude Code to “run the piles”.</span>
             </span>
           ) : BRIDGE_AVAILABLE ? (
             'The dev bridge isn’t answering. Is `npm run dev` running?'

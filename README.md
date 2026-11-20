@@ -107,6 +107,7 @@ The browser can't write files, so `plugins/piles.ts` adds a dev-only API to the 
 | `GET /api/piles/status` | Live run progress: `piles/run.json` + `piles/status/*.json` + Manager teams (`piles/teams/`), with roll-up, stale flags, pending results and elapsed times. Writes the run summary report when a run ends |
 | `GET /api/piles/reports/run?startedAt=` | A run's summary report (markdown) |
 | `POST /api/piles/run/dismiss`, `POST /api/piles/status/clear` | Dismiss an abandoned run; clear a stalled task from the run |
+| `GET /api/piles/run/state`, `POST /api/piles/run`, `POST /api/piles/run/stop` | The in-app **Run agents** button: what would run, start a headless orchestrator, stop it (see below) |
 
 The app syncs the queue about a second after any change and polls for results every 5 s while the tab is visible. A `returned` result moves the task to your pile with the agent's note as the reason; manager-proposed subtasks are added; new outputs pop a toast. Several browser profiles can share one dev server: each only picks up results for its own tasks, a profile with no Lumen data never writes the queue, and opening Lumen with `?bridge=read` (e.g. `http://localhost:5173/?bridge=read`) makes a tab follow runs without ever writing the queue. In a production build there is no bridge: the view shows **Offline** with **Export** buttons for the same four files. `piles/` is git-ignored (it is personal task data) except `piles/README.md`, which documents the file formats.
 
@@ -118,7 +119,25 @@ The app syncs the queue about a second after any change and polls for results ev
 
 **Agent status bar**: a slim footer in every view. Idle, it shows the last run ("Last run 2:04 PM · 5 done"), how many outputs await your review (click to jump to the Delegation view filtered to review) and the next scheduled run (`SCHEDULE` in `src/lib/agentRun.ts`, 9:00 and 14:00). While agents work it shows a live dot, "3 of 5 done" with an overall progress bar, and a chip per agent ("Manager · Researching 'Standing desk options' 50%"). Click it for every task in the run, grouped by agent, with phase, message, progress, elapsed time and state; click a row to open the task. Delegation cards show the same live progress. Agents report progress through `piles/run.json` and `piles/status/<taskId>.json` (format in `piles/README.md`). Try it with `npm run sim:run`. In a production build the bar shows *Agents offline*. A run with no update for 30 minutes shows *Last run didn't finish* with **Dismiss**; stalled tasks can be cleared from the panel. `npm run sim:clean` removes a simulation's files.
 
-With the dev server running, ask Claude Code in this folder to **"run the piles"** (or "run my agents"). The project skill `.claude/skills/run-piles/SKILL.md` reads the queue, spawns a Manager subagent (Opus) and Junior subagents (Sonnet/Haiku), writes one `piles/results/<taskId>.json` per task, and summarises. Agents never send messages, buy, book, sign in, enter credentials, delete anything or act as you. Those tasks come back to your pile with a note on what is prepared and what you need to do.
+**Run agents button**: with the dev server running, press **Run agents** in the Delegation header (also a compact **Run** in the idle status bar, and ⌘K → *Run agents now*). A confirm popover lists the tasks that will run, grouped by Manager and Junior (untick any to skip them this time: the prompt then adds "Only run these task ids: …"), notes that Manager tasks may hire up to 4 Senior/Junior agents and that it uses your Claude usage, and has **Run** (`⌘↵`) and **Cancel**. The button is disabled with "Nothing queued for agents" when no task qualifies (the runbook's selection rules). While a run is going it turns into **Running…** with a spinner and a **Stop** action (with its own confirm), the status bar shows *Starting agents* until the orchestrator writes `run.json` and then takes over with live progress, and **View log** in the status panel opens the tail of the current or last log. Toasts cover a missing CLI, an active run, nothing to run, and a failed run (with its exit code and **View log**). A `?bridge=read` tab and a production build don't offer the button (production shows it disabled: run from Claude Code instead).
+
+The button spawns the Claude Code CLI headless from the dev server (`plugins/runner.ts`), with the project root as working directory:
+
+```bash
+claude -p --model sonnet --permission-mode dontAsk \
+  --allowedTools Task Agent 'Read(./**)' Glob Grep 'Edit(./piles/**)' 'Write(./piles/**)' WebSearch WebFetch \
+                 'Bash(python3 -c:*)' 'Bash(node scripts/run-report.ts)' 'Bash(mkdir:*)' 'Bash(mv:*)' 'Bash(ls:*)' \
+  --setting-sources project,local --strict-mcp-config --output-format stream-json --verbose \
+  -- "Run the Lumen delegation piles. Follow .claude/skills/run-piles/SKILL.md exactly. Trigger: manual (started from the Lumen Run button). This is a headless run from the project root: run the runbook commands exactly as written, one per Bash call, with no cd or && chaining (tell your subagents the same)."
+```
+
+How permissions are scoped: headless mode can't answer prompts, so instead of bypassing permissions (never `bypassPermissions` or `--dangerously-skip-permissions`) it uses `dontAsk`, which **denies** every tool call that isn't on the allow-list. File writes are limited to `piles/` (`Edit`/`Write` path rules; Claude Code also checks `mkdir`/`mv` targets against them, so those can only touch `piles/`), reads to the project, and Bash to `python3 -c` (the runbook's atomic-write one-liners), the report script, `mkdir`, `mv` and `ls`. Subagents inherit the same rules. A chained command (`cd … && python3 …`) is denied as a whole, so the prompt and the runbook tell headless agents to run each command on its own. `--setting-sources project,local` keeps a user-level allow rule from widening the list, and `--strict-mcp-config` loads no MCP servers (no mail, calendar or other accounts). The Sonnet orchestrator spawns Opus Managers and Sonnet/Haiku Juniors per the runbook. The binary is found on `PATH`, then at `~/.local/bin/claude` (override with `LUMEN_CLAUDE_BIN`). Caveat: `python3 -c` can run any Python, so the runbook's safety rules (and the model following them) are still part of the guardrail; the allow-list blocks everything else.
+
+The endpoints only answer requests that carry `X-Lumen-Run: 1`, come from `localhost`/`127.0.0.1`/`[::1]` on the dev port (Host, and Origin when present; POSTs must have one), aren't cross-site (`Sec-Fetch-Site`), and aren't from a `?bridge=read` tab; anything else gets 403. Only one run at a time: 409 while a spawned process is alive or `run.json` says `running` and isn't abandoned. If the process exits non-zero, or exits without closing `run.json`, the server marks the run `failed` with `exitCode`; **Stop** kills the whole process group and marks it `failed` with `stoppedByUser: true`. Output goes to `piles/logs/run-<timestamp>.log` (the last 20 are kept).
+
+To test the button without spending usage, point the server at a stand-in: `LUMEN_RUN_CMD="node scripts/fake-run.ts --secs=20" npm run dev` runs `scripts/fake-run.ts` instead of the CLI. It writes `run.json` and status files for two synthetic tasks, never writes results, and supports `--exit=N`, `--no-finish`, `--crash` and `--use-selection` (also read from `<piles>/fake-run.args`). `LUMEN_PILES_DIR=/some/scratch/dir` points the bridge at a scratch copy of `piles/` so tests never touch your real queue.
+
+From Claude Code you can still ask, in this folder, to **"run the piles"** (or "run my agents"). The project skill `.claude/skills/run-piles/SKILL.md` reads the queue, spawns a Manager subagent (Opus) and Junior subagents (Sonnet/Haiku), writes one `piles/results/<taskId>.json` per task, and summarises. Agents never send messages, buy, book, sign in, enter credentials, delete anything or act as you. Those tasks come back to your pile with a note on what is prepared and what you need to do.
 
 ## Structure
 
@@ -131,7 +150,8 @@ src/
                 delegate.ts (auto-sort), piles.ts (queue + checklists), bridge.ts (sync + polling)
   hooks/        keyboard shortcuts and derived selectors
 plugins/piles.ts  dev-only Vite plugin: the /api/piles bridge
-scripts/          test-sort.ts (npm run test:sort)
+plugins/runner.ts the Run agents button's server side: spawns, watches and stops a headless orchestrator
+scripts/          test-sort.ts (npm run test:sort), fake-run.ts (stand-in orchestrator for tests)
 piles/            agent hand-off folder (git-ignored except README.md)
 .claude/skills/run-piles/  Claude Code runbook for the agent piles
 ```
