@@ -1,10 +1,10 @@
 import * as chrono from 'chrono-node'
 import { addDays, getDay } from 'date-fns'
-import type { DateKey, Energy, Priority, Project, Recurrence } from './types'
+import type { DateKey, Energy, Owner, Priority, Project, Recurrence } from './types'
 import { describeRecurrence } from './recurrence'
 import { dueLabel, formatTime, PRIORITY_META, toKey } from './utils'
 
-export type TokenKind = 'date' | 'tag' | 'priority' | 'energy' | 'estimate' | 'project' | 'recurrence'
+export type TokenKind = 'date' | 'tag' | 'priority' | 'energy' | 'estimate' | 'project' | 'recurrence' | 'owner'
 
 export interface ParsedToken {
   kind: TokenKind
@@ -25,8 +25,22 @@ export interface ParsedInput {
   /** set when `@name` doesn't match an existing project */
   newProjectName: string | null
   recurrence: Recurrence | null
+  /** delegation override: `^me`, `^mgr`, `^jr` (null = auto-sort) */
+  owner: Owner | null
   tokens: ParsedToken[]
 }
+
+const OWNER_WORDS: Record<string, Owner> = {
+  me: 'human',
+  you: 'human',
+  human: 'human',
+  cho: 'human',
+  mgr: 'manager',
+  manager: 'manager',
+  jr: 'junior',
+  junior: 'junior',
+}
+export const OWNER_TOKEN_LABEL: Record<Owner, string> = { human: 'You (CHO)', manager: 'Manager agent', junior: 'Junior agent' }
 
 const PRIORITY_WORDS: Record<string, Priority> = {
   urgent: 1,
@@ -84,6 +98,7 @@ export function parseQuickAdd(input: string, projects: Project[]): ParsedInput {
     projectId: null,
     newProjectName: null,
     recurrence: null,
+    owner: null,
     tokens: [],
   }
   // Masked copy: matched token spans are replaced with spaces so indices stay stable.
@@ -154,6 +169,15 @@ export function parseQuickAdd(input: string, projects: Project[]): ParsedInput {
     const e = m[2].toLowerCase() as Energy
     out.energy = e
     out.tokens.push({ kind: 'energy', label: e === 'high' ? 'High energy' : 'Low energy', start, end })
+    return true
+  })
+
+  // Delegation override: ^me ^mgr ^jr  (`@` is taken by projects, so owners use a caret)
+  run(/(^|\s)\^(me|you|human|cho|mgr|manager|jr|junior)(?=\s|$)/gi, (m, start, end) => {
+    const o = OWNER_WORDS[m[2].toLowerCase()]
+    if (!o) return false
+    out.owner = o
+    out.tokens.push({ kind: 'owner', label: OWNER_TOKEN_LABEL[o], start, end })
     return true
   })
 

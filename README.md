@@ -1,6 +1,6 @@
 # Lumen
 
-A calm, keyboard-first, local-first planner. Built with Vite, React, TypeScript and Tailwind CSS v4. Everything is stored in your browser's `localStorage`. There is no backend and no account.
+A calm, keyboard-first, local-first planner. Built with Vite, React, TypeScript and Tailwind CSS v4. Everything is stored in your browser's `localStorage`. There is no backend and no account. In development, a small Vite plugin mirrors your delegated tasks to `piles/` so Claude Code agents can work on them (see [Delegation & agents](#delegation--agents)).
 
 ## Run it
 
@@ -9,6 +9,8 @@ npm install
 npm run dev      # http://localhost:5173
 npm run build    # type-check + production build to dist/
 npm run preview  # serve the production build
+npm run lint     # oxlint
+npm run test:sort  # sanity checks for the delegation auto-sort
 ```
 
 On first run Lumen seeds about 30 demo tasks across 4 projects, plus 6 months of backdated history, so the dashboard has data to show. Remove it from **Settings → Clear demo data**. Your own tasks are kept.
@@ -45,7 +47,7 @@ All motion respects `prefers-reduced-motion`.
 | `⌘K` / `Ctrl K` | Command menu |
 | `Q` or `N` | Quick add |
 | `/` | Focus the filter box |
-| `G` then `D` `I` `T` `U` `L` `M` `B` | Go to Dashboard, Inbox, Today, Upcoming, Logbook, Matrix, Board |
+| `G` then `D` `I` `T` `U` `L` `M` `B` `A` | Go to Dashboard, Inbox, Today, Upcoming, Logbook, Matrix, Board, Delegation |
 | `J` / `K` (or arrow keys) | Move the selection |
 | `X` or `Space` | Complete the selected task |
 | `E` or `Enter` | Edit the selected task |
@@ -72,6 +74,42 @@ In focus mode: `Space` starts or pauses, `R` resets, `S` skips, `Esc` exits (tim
 | `~high` / `~low-energy` | Energy level |
 | `~30m` / `~1.5h` | Estimate |
 | `every day`, `every weekday`, `every mon`, `every 3 days`, `monthly` | Recurrence |
+| `^me` / `^mgr` / `^jr` | Delegation pile override: you, Manager agent, Junior agent (also `^manager`, `^junior`, `^you`). Without it the task is auto-sorted. `@` stays reserved for projects. |
+
+## Delegation & agents
+
+You are the **Chief Human Officer (CHO)**. Every task belongs to one of three piles:
+
+| Pile | What goes there |
+|---|---|
+| **You · Chief Human Officer** | Things only a human can or should do |
+| **Manager agent** | Planning, research, analysis, comparisons, roadmaps, reviews, prioritising, breaking work down, proposals |
+| **Junior agent** | Drafting, writing, summarising, outlines, formatting, lists, lookups, proofreading, templates, notes, checklists |
+
+**Auto-sort** (`src/lib/delegate.ts`) is a deterministic, rule-based classifier with weighted keyword and tag rules. It returns an owner, a short reason ("Phone call → needs you") and a confidence. Hard human rules always win and **lock** the task to you, so agents can never be assigned it, not even by drag-and-drop: calls and meetings, in-person errands, payments and purchases, booking, signing and IDs, sending messages as you, personal/health/family matters, decisions and approvals, and anything that needs a login. When nothing matches, the task stays with you at low confidence. Run `npm run test:sort` for ~40 example titles.
+
+Auto-sorted tasks re-sort when their title, tags or project change. A manual choice (drag between piles, the drawer's **Owner** control, or `^me` / `^mgr` / `^jr` in quick add) is never overridden; **Reset to auto** in the drawer hands it back. **Re-sort all** re-runs auto-sort on every auto-sorted task.
+
+**Delegation view** (`G A`, sidebar → Views, or ⌘K → Delegation): three piles with counts, drag-and-drop between them (a drop makes the choice manual and re-queues the agent), the sort reason and agent status on every card (Queued, Working, Ready for review, Returned to you, Approved), a status filter, and an "Agents connected / Offline" indicator. Task rows everywhere carry a small owner glyph, and the dashboard has a Delegation tile with counts per pile and outputs awaiting review.
+
+**Reviewing agent work**: open a task that is *Ready for review* to see the rendered markdown output, then **Approve** (marks it approved; it does not complete the task), **Send back** with a note (re-queued with your feedback and the previous draft), or **Take it over** (moves it to your pile, keeping the draft).
+
+### The bridge to Claude Code
+
+The browser can't write files, so `plugins/piles.ts` adds a dev-only API to the Vite server:
+
+| Endpoint | Does |
+|---|---|
+| `GET /api/piles` | Health check (drives the connected indicator) |
+| `POST /api/piles` | Writes `piles/queue.json` and `piles/{human,manager,junior}.md` from the open tasks |
+| `GET /api/piles/results` | Returns `piles/results/*.json` |
+| `POST /api/piles/results/ack` | Moves processed result files to `piles/results/processed/` |
+
+The app syncs the queue about a second after any change and polls for results every 5 s while the tab is visible. A `returned` result moves the task to your pile with the agent's note as the reason; manager-proposed subtasks are added; new outputs pop a toast. In a production build there is no bridge: the view shows **Offline** with **Export** buttons for the same four files. `piles/` is git-ignored (it is personal task data) except `piles/README.md`, which documents the file formats.
+
+### Running the agents
+
+With the dev server running, ask Claude Code in this folder to **"run the piles"** (or "run my agents"). The project skill `.claude/skills/run-piles/SKILL.md` reads the queue, spawns a Manager subagent (Opus) and Junior subagents (Sonnet/Haiku), writes one `piles/results/<taskId>.json` per task, and summarises. Agents never send messages, buy, book, sign in, enter credentials, delete anything or act as you. Those tasks come back to your pile with a note on what is prepared and what you need to do.
 
 ## Structure
 
@@ -79,7 +117,12 @@ In focus mode: `Space` starts or pauses, `R` resets, `S` skips, `Esc` exits (tim
 src/
   components/   UI building blocks (cards, task row, palette, heatmap, ring, charts, dialogs)
   views/        Dashboard, ListView, BoardView, MatrixView, FocusMode, PlanDay, Shutdown
-  store/        zustand stores: persisted data (schema v1) and ephemeral UI state
-  lib/          types, NL parser, recurrence, stats, suggestions, seed data, motion tokens
+  store/        zustand stores: persisted data (schema v2, migrates v1) and ephemeral UI state
+  lib/          types, NL parser, recurrence, stats, suggestions, seed data, motion tokens,
+                delegate.ts (auto-sort), piles.ts (queue + checklists), bridge.ts (sync + polling)
   hooks/        keyboard shortcuts and derived selectors
+plugins/piles.ts  dev-only Vite plugin: the /api/piles bridge
+scripts/          test-sort.ts (npm run test:sort)
+piles/            agent hand-off folder (git-ignored except README.md)
+.claude/skills/run-piles/  Claude Code runbook for the agent piles
 ```

@@ -1,12 +1,27 @@
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
 import { nanoid } from 'nanoid'
-import type { DateKey, DayActivity, FocusSession, Project, Settings, Status, Task, TaskDraft, Theme } from '../lib/types'
+import type {
+  AgentResult,
+  AgentState,
+  DateKey,
+  DayActivity,
+  FocusSession,
+  Owner,
+  OwnerSource,
+  Project,
+  Settings,
+  Status,
+  Task,
+  TaskDraft,
+  Theme,
+} from '../lib/types'
 import { nextOccurrence } from '../lib/recurrence'
 import { buildSeed } from '../lib/seed'
+import { autoOwnerFields, classify, OWNER_LABEL } from '../lib/delegate'
 import { isToday, isValidKey, PROJECT_COLORS, todayKey, toKey } from '../lib/utils'
 
-export const SCHEMA_VERSION = 1
+export const SCHEMA_VERSION = 2
 export const STORAGE_KEY = 'lumen:store'
 
 export interface DataState {
@@ -49,6 +64,17 @@ export interface Actions {
   resetAll: () => void
   undo: () => boolean
   canUndo: () => boolean
+  // ── Delegation ──
+  /** Manual override. Refused (ok: false) when a hard human rule forbids agents taking the task. */
+  setOwner: (id: string, owner: Owner) => { ok: true } | { ok: false; reason: string }
+  /** Hand the task back to auto-sort. */
+  resetOwner: (id: string) => void
+  /** Re-run auto-sort on every open, auto-sorted task. Returns how many moved pile. */
+  resortAll: () => number
+  approveAgent: (id: string) => void
+  sendBackAgent: (id: string, note: string) => void
+  takeOver: (id: string) => void
+  applyAgentResults: (results: AgentResult[]) => { review: string[]; returned: string[]; working: string[]; handed: string[] }
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -86,6 +112,27 @@ function bump(map: Record<DateKey, DayActivity>, key: DateKey, field: keyof DayA
   return { ...map, [key]: { ...cur, [field]: Math.max(0, cur[field] + delta) } }
 }
 
+const OWNERS: Owner[] = ['human', 'manager', 'junior']
+const AGENT_STATUSES = ['queued', 'working', 'review', 'returned', 'approved'] as const
+
+function shorten(s: string, n = 90) {
+  const first = s.trim().split(/(?<=[.!?])\s/)[0] ?? s
+  return first.length > n ? first.slice(0, n - 1) + '…' : first
+}
+
+/** Move a task to a pile. Agent piles start (or restart) at `queued`; moving to you keeps any output for reference. */
+function moveTo(t: Task, owner: Owner, source: OwnerSource, reason: string): Task {
+  const now = Date.now()
+  if (owner === t.owner) {
+    const agent = owner !== 'human' && !t.agent ? { status: 'queued' as const, updatedAt: now } : t.agent
+    return { ...t, ownerSource: source, sortReason: reason, agent }
+  }
+  let agent: AgentState | undefined
+  if (owner !== 'human') agent = { status: 'queued', updatedAt: now }
+  else if (t.agent?.output) agent = { ...t.agent, status: 'returned', updatedAt: now }
+  return { ...t, owner, ownerSource: source, sortReason: reason, agent }
+}
+
 export const useStore = create<DataState & Actions>()(
   persist(
     (set, get) => {
@@ -95,6 +142,9 @@ export const useStore = create<DataState & Actions>()(
         if (undoStack.length > 30) undoStack.shift()
       }
       const patchTask = (id: string, fn: (t: Task) => Task) => set((s) => ({ tasks: s.tasks.map((t) => (t.id === id ? fn(t) : t)) }))
+      const projectName = (id: string | null) => (id ? get().projects.find((p) => p.id === id)?.name : undefined)
+      const sortOf = (t: Pick<Task, 'title' | 'tags' | 'projectId'>) =>
+        classify({ title: t.title, tags: t.tags, project: projectName(t.projectId) })
 
       return {
         ...freshState(true),
@@ -122,12 +172,41 @@ export const useStore = create<DataState & Actions>()(
             title: draft.title.trim() || 'Untitled',
             createdAt: new Date().toISOString(),
             order,
+            owner: 'human',
+            ownerSource: 'auto',
+            sortReason: '',
           }
+          // Delegation: an explicit owner (quick-add ^me/^mgr/^jr) wins unless a hard human rule forbids it.
+          const sorted = sortOf(task)
+          if (draft.owner && (draft.owner === 'human' || !sorted.locked)) {
+            task.owner = draft.owner
+            task.ownerSource = draft.ownerSource ?? 'manual'
+            task.sortReason = draft.sortReason ?? (draft.owner === 'human' ? 'Kept by you' : `Delegated by you → ${OWNER_LABEL[draft.owner]}`)
+          } else {
+            task.owner = sorted.owner
+            task.ownerSource = 'auto'
+            task.sortReason = sorted.reason
+          }
+          task.agent = task.owner !== 'human' ? { status: 'queued', updatedAt: Date.now() } : undefined
           set((s) => ({ tasks: [...s.tasks, task] }))
           return id
         },
 
-        updateTask: (id, patch) => patchTask(id, (t) => ({ ...t, ...patch })),
+        updateTask: (id, patch) =>
+          patchTask(id, (t) => {
+            const next = { ...t, ...patch }
+            if ('owner' in patch) return next
+            const changed =
+              (patch.title !== undefined && patch.title !== t.title) ||
+              (patch.tags !== undefined && patch.tags.join() !== t.tags.join()) ||
+              (patch.projectId !== undefined && patch.projectId !== t.projectId)
+            if (!changed) return next
+            const r = sortOf(next)
+            // auto-sorted tasks follow their title/tags; any task that becomes human-only leaves the agent piles
+            if (t.ownerSource === 'auto') return moveTo(next, r.owner, 'auto', r.reason)
+            if (r.locked && next.owner !== 'human') return moveTo(next, 'human', 'auto', r.reason)
+            return next
+          }),
 
         deleteTask: (id) => {
           const t = get().tasks.find((x) => x.id === id)
@@ -168,6 +247,7 @@ export const useStore = create<DataState & Actions>()(
               due: nextOccurrence(t.recurrence, t.due),
               createdAt: now,
               order: Math.max(...s.tasks.map((x) => x.order)) + 1,
+              agent: t.owner !== 'human' ? { status: 'queued', updatedAt: Date.now() } : undefined,
             })
           }
           set({ tasks, activity: bump(s.activity, today, 'done', 1) })
@@ -306,6 +386,100 @@ export const useStore = create<DataState & Actions>()(
           return true
         },
         canUndo: () => undoStack.length > 0,
+
+        // ── Delegation ──
+        setOwner: (id, owner) => {
+          const t = get().tasks.find((x) => x.id === id)
+          if (!t) return { ok: false, reason: 'Task not found' }
+          const r = sortOf(t)
+          if (owner !== 'human' && r.locked) return { ok: false, reason: r.reason }
+          if (t.owner === owner && t.ownerSource === 'manual') return { ok: true }
+          const reason = owner === 'human' ? 'Kept by you' : `Delegated by you → ${OWNER_LABEL[owner]}`
+          patchTask(id, (x) => moveTo(x, owner, 'manual', reason))
+          return { ok: true }
+        },
+
+        resetOwner: (id) =>
+          patchTask(id, (t) => {
+            const r = sortOf(t)
+            return moveTo(t, r.owner, 'auto', r.reason)
+          }),
+
+        resortAll: () => {
+          snapshot()
+          let moved = 0
+          set((s) => ({
+            tasks: s.tasks.map((t) => {
+              if (t.status === 'done' || t.ownerSource !== 'auto') return t
+              const r = sortOf(t)
+              if (r.owner !== t.owner) moved++
+              return moveTo(t, r.owner, 'auto', r.reason)
+            }),
+          }))
+          return moved
+        },
+
+        approveAgent: (id) =>
+          patchTask(id, (t) => (t.agent ? { ...t, agent: { ...t.agent, status: 'approved', updatedAt: Date.now() } } : t)),
+
+        sendBackAgent: (id, note) =>
+          patchTask(id, (t) => ({
+            ...t,
+            agent: { ...(t.agent ?? {}), status: 'queued', note: note.trim() || undefined, updatedAt: Date.now() },
+          })),
+
+        takeOver: (id) => patchTask(id, (t) => moveTo(t, 'human', 'manual', 'You took this over')),
+
+        applyAgentResults: (results) => {
+          const out = { review: [] as string[], returned: [] as string[], working: [] as string[], handed: [] as string[] }
+          if (!results.length) return out
+          const byId = new Map(results.map((r) => [r.taskId, r]))
+          const now = Date.now()
+          set((s) => ({
+            tasks: s.tasks.map((t) => {
+              const r = byId.get(t.id)
+              // finished or already-approved work is never overwritten by a late result
+              if (!r || t.status === 'done' || t.agent?.status === 'approved') return t
+              let next: Task = { ...t }
+              if (r.subtasks?.length) {
+                const have = new Set(t.subtasks.map((x) => x.title.trim().toLowerCase()))
+                const add = r.subtasks
+                  .map((x) => String(x).trim())
+                  .filter((x) => x && !have.has(x.toLowerCase()))
+                  .map((title) => ({ id: nanoid(8), title, done: false }))
+                next.subtasks = [...t.subtasks, ...add]
+              }
+              if (r.status === 'working') {
+                next.agent = { ...(t.agent ?? {}), status: 'working', by: r.by, updatedAt: now }
+                out.working.push(t.id)
+              } else if (r.status === 'returned' || r.owner === 'human') {
+                next = {
+                  ...next,
+                  owner: 'human',
+                  ownerSource: 'manual',
+                  sortReason: r.note ? shorten(r.note) : 'Returned by the agent',
+                  agent: { status: 'returned', output: r.output, note: r.note, by: r.by, updatedAt: now },
+                }
+                out.returned.push(t.id)
+              } else if (r.owner && r.owner !== t.owner && !sortOf(t).locked) {
+                // e.g. the manager planned it and hands the drafting to the junior pile
+                next = {
+                  ...next,
+                  owner: r.owner,
+                  ownerSource: 'manual',
+                  sortReason: `Handed to ${OWNER_LABEL[r.owner]} by ${OWNER_LABEL[r.by]}`,
+                  agent: { status: 'queued', output: r.output, note: r.note, by: r.by, updatedAt: now },
+                }
+                out.handed.push(t.id)
+              } else {
+                next.agent = { status: 'review', output: r.output ?? '', note: r.note, by: r.by, updatedAt: now }
+                out.review.push(t.id)
+              }
+              return next
+            }),
+          }))
+          return out
+        },
       }
     },
     {
@@ -327,6 +501,7 @@ export const useStore = create<DataState & Actions>()(
       }),
       migrate: (persisted, version) => {
         // v0 → v1: no prior public schema; normalise whatever is there.
+        // v1 → v2: delegation fields (owner, ownerSource, sortReason, agent) are added by auto-sort in migrate().
         void version
         return migrate(persisted as Partial<DataState>)
       },
@@ -337,6 +512,7 @@ export const useStore = create<DataState & Actions>()(
 /** Normalise / upgrade any persisted or imported payload to the current schema. */
 function migrate(d: Partial<DataState>): DataState {
   const base = freshState(false)
+  const projects = d.projects ?? []
   const tasks = ((d.tasks ?? []) as Partial<Task>[]).map((t, i) => ({
     notes: '',
     dueTime: null,
@@ -355,13 +531,15 @@ function migrate(d: Partial<DataState>): DataState {
     due: isValidKey(t.due) ? t.due : null,
     priority: t.priority && [1, 2, 3, 4].includes(t.priority) ? t.priority : 4,
     status: t.status === 'done' || t.status === 'doing' ? t.status : 'todo',
+    // v1 → v2: delegation. Tasks without an owner are auto-sorted into a pile.
+    ...migrateOwner(t, projects),
   })) as Task[]
   return {
     ...base,
     ...d,
     schemaVersion: SCHEMA_VERSION,
     tasks,
-    projects: d.projects ?? [],
+    projects,
     activity: d.activity ?? {},
     demoActivity: d.demoActivity ?? {},
     sessions: d.sessions ?? [],
@@ -369,6 +547,24 @@ function migrate(d: Partial<DataState>): DataState {
     settings: { ...DEFAULT_SETTINGS, ...(d.settings ?? {}) },
     seeded: d.seeded ?? true,
   }
+}
+
+function migrateOwner(t: Partial<Task>, projects: Project[]): Pick<Task, 'owner' | 'ownerSource' | 'sortReason' | 'agent'> {
+  const agent =
+    t.agent && typeof t.agent === 'object' && AGENT_STATUSES.includes(t.agent.status)
+      ? { ...t.agent, updatedAt: typeof t.agent.updatedAt === 'number' ? t.agent.updatedAt : Date.now() }
+      : undefined
+  if (t.owner && OWNERS.includes(t.owner)) {
+    return {
+      owner: t.owner,
+      ownerSource: t.ownerSource === 'manual' ? 'manual' : 'auto',
+      sortReason: typeof t.sortReason === 'string' ? t.sortReason : '',
+      agent: t.owner !== 'human' && !agent ? { status: 'queued', updatedAt: Date.now() } : agent,
+    }
+  }
+  const project = t.projectId ? projects.find((p) => p.id === t.projectId)?.name : undefined
+  const f = autoOwnerFields({ title: t.title ?? '', tags: t.tags ?? [], project })
+  return { ...f, agent: f.owner !== 'human' ? { status: 'queued', updatedAt: Date.now() } : undefined }
 }
 
 export function exportData(): string {

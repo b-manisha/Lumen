@@ -23,6 +23,7 @@ export const SHORTCUTS: { group: string; items: [string[], string][] }[] = [
       [['G', 'L'], 'Logbook'],
       [['G', 'M'], 'Eisenhower matrix'],
       [['G', 'B'], 'Board'],
+      [['G', 'A'], 'Delegation (agents)'],
     ],
   },
   {

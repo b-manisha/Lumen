@@ -45,6 +45,7 @@ import { Breakdown } from '../components/Breakdown'
 import { EmptyState } from '../components/EmptyState'
 import { QuickAdd } from '../components/QuickAdd'
 import { MobileMenuButton } from '../components/ViewHeader'
+import { DelegationWidget } from '../components/DelegationWidget'
 
 // recharts is heavy; load it in its own chunk
 const WeeklyChart = lazy(() => import('../components/WeeklyChart').then((m) => ({ default: m.WeeklyChart })))
@@ -641,7 +642,12 @@ export function Dashboard() {
           </Card>
         </Tile>
 
-        {/* ── Row 4: Heatmap ── */}
+        {/* ── Row 4: Delegation ── */}
+        <Tile className="col-span-12">
+          <DelegationWidget />
+        </Tile>
+
+        {/* ── Row 5: Heatmap ── */}
         <Tile className="col-span-12">
           <Card className="p-5">
             <CardHeader

@@ -7,6 +7,7 @@ import { EXPO_OUT } from './lib/motion'
 import { useStore } from './store/useStore'
 import { hashToView, useUI } from './store/useUI'
 import { useShortcuts } from './hooks/useShortcuts'
+import { useAgentBridge } from './lib/bridge'
 import { Sidebar } from './components/Sidebar'
 import { CommandPalette } from './components/CommandPalette'
 import { TaskDetail } from './components/TaskDetail'
@@ -20,6 +21,7 @@ import { Shutdown } from './views/Shutdown'
 // Drag-and-drop views are split into their own chunks
 const BoardView = lazy(() => import('./views/BoardView').then((m) => ({ default: m.BoardView })))
 const MatrixView = lazy(() => import('./views/MatrixView').then((m) => ({ default: m.MatrixView })))
+const DelegationView = lazy(() => import('./views/DelegationView').then((m) => ({ default: m.DelegationView })))
 
 function viewKey(v: ViewId) {
   return v.kind === 'project' ? `project-${v.id}` : v.kind
@@ -33,6 +35,8 @@ function CurrentView({ view }: { view: ViewId }) {
       return <BoardView />
     case 'matrix':
       return <MatrixView />
+    case 'delegation':
+      return <DelegationView />
     default:
       return <ListView view={view} />
   }
@@ -42,6 +46,7 @@ export default function App() {
   const theme = useStore((s) => s.settings.theme)
   const view = useUI((s) => s.view)
   useShortcuts()
+  useAgentBridge()
 
   // Theme → <html data-theme>
   useEffect(() => {

@@ -3,6 +3,7 @@ import { getDay, subDays } from 'date-fns'
 import type { DateKey, DayActivity, Priority, Project, Recurrence, Task } from './types'
 import { addDaysKey, mulberry32, todayKey, toKey } from './utils'
 import { nextOccurrence } from './recurrence'
+import { autoOwnerFields } from './delegate'
 
 interface SeedTask {
   title: string
@@ -203,6 +204,7 @@ export function buildSeed(): SeedResult {
       plannedFor: s.plan || (done && (s.doneAgo ?? 0) === 0) ? today : null,
       order: i,
       focusMinutes: done ? 25 : s.status === 'doing' ? 50 : 0,
+      ...autoOwnerFields({ title: s.title, tags: s.tags, project: PROJECTS.find((p) => p.key === s.p)?.name }),
       demo: true,
     }
   })

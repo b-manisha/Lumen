@@ -17,6 +17,7 @@ import {
   Sunrise,
   Sunset,
   Timer,
+  Users,
 } from 'lucide-react'
 import type { ViewId } from '../lib/types'
 import { cn, isOpen, isToday, modKey, todayKey } from '../lib/utils'
@@ -97,6 +98,7 @@ function SidebarInner({ collapsed, onToggle, mobile }: { collapsed: boolean; onT
       today: openTasks.filter((t) => isToday(t, today)).length,
       overdue: openTasks.filter((t) => t.due && t.due < today).length,
       upcoming: openTasks.filter((t) => t.due && t.due > today).length,
+      review: openTasks.filter((t) => t.agent?.status === 'review').length,
       byProject,
     }
   }, [tasks])
@@ -190,6 +192,16 @@ function SidebarInner({ collapsed, onToggle, mobile }: { collapsed: boolean; onT
         <NavSection collapsed={collapsed} title="Views">
           <NavItem collapsed={collapsed} mobile={mobile} to={{ kind: 'matrix' }} icon={<Grid2x2 />} label="Eisenhower" kbd="G M" />
           <NavItem collapsed={collapsed} mobile={mobile} to={{ kind: 'board' }} icon={<SquareKanban />} label="Board" kbd="G B" />
+          <NavItem
+            collapsed={collapsed}
+            mobile={mobile}
+            to={{ kind: 'delegation' }}
+            icon={<Users />}
+            label="Delegation"
+            count={counts.review}
+            kbd="G A"
+            accent
+          />
         </NavSection>
 
         <NavSection collapsed={collapsed} title="Rituals">
@@ -376,6 +388,7 @@ function NavItem({
   count,
   kbd,
   danger,
+  accent,
   collapsed,
   mobile,
 }: {
@@ -385,6 +398,8 @@ function NavItem({
   count?: number
   kbd?: string
   danger?: boolean
+  /** count rendered as an accent pill (e.g. agent outputs awaiting review) */
+  accent?: boolean
   collapsed: boolean
   mobile?: boolean
 }) {
@@ -410,7 +425,15 @@ function NavItem({
       <span className={cn('relative [&>svg]:size-[16px]', active ? 'text-accent' : 'text-faint group-hover/nav:text-muted')}>{icon}</span>
       {!collapsed && <span className="relative flex-1 truncate text-left">{label}</span>}
       {!collapsed && count != null && count > 0 && (
-        <span className={cn('tnum relative text-[11.5px]', danger ? 'text-danger' : 'text-faint')}>{count}</span>
+        <span
+          className={cn(
+            'tnum relative text-[11.5px]',
+            danger ? 'text-danger' : accent ? 'rounded-full bg-accent-soft px-1.5 font-medium text-accent' : 'text-faint',
+          )}
+          title={accent ? `${count} ready for review` : undefined}
+        >
+          {count}
+        </span>
       )}
       {!collapsed && kbd && !count && (
         <span className="relative opacity-0 transition-opacity group-hover/nav:opacity-100">

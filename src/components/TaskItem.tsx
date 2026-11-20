@@ -10,6 +10,8 @@ import { useUI } from '../store/useUI'
 import { Checkbox } from './Checkbox'
 import { Tip } from './ui'
 import { localDay } from '../hooks/useDerived'
+import { OwnerGlyph, OWNER_META } from './Owner'
+import { AGENT_STATUS_LABEL } from '../lib/piles'
 
 interface Props {
   task: Task
@@ -158,6 +160,16 @@ export const TaskItem = memo(function TaskItem({ task, showProject = true, compa
             </button>
           </Tip>
         )}
+        <OwnerGlyph
+          owner={task.owner}
+          tip={
+            <span>
+              {OWNER_META[task.owner].label}
+              {task.agent && <span className="text-muted"> · {AGENT_STATUS_LABEL[task.agent.status]}</span>}
+              {task.sortReason && <span className="block text-[11px] text-faint">{task.sortReason}</span>}
+            </span>
+          }
+        />
         {task.priority < 4 && (
           <Flag
             className="size-3.5"

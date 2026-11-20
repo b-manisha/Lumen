@@ -22,6 +22,23 @@ export interface Subtask {
   done: boolean
 }
 
+/** Who does the task: the human (Chief Human Officer) or one of the agent piles. */
+export type Owner = 'human' | 'manager' | 'junior'
+export type AgentRole = 'manager' | 'junior'
+/** `auto` re-sorts when the title or tags change; `manual` (user override) never does. */
+export type OwnerSource = 'auto' | 'manual'
+export type AgentStatus = 'queued' | 'working' | 'review' | 'returned' | 'approved'
+
+export interface AgentState {
+  status: AgentStatus
+  /** markdown deliverable written by the agent */
+  output?: string
+  /** agent's note (why it was returned) or the CHO's "send back" feedback */
+  note?: string
+  updatedAt: number
+  by?: AgentRole
+}
+
 export interface Task {
   id: string
   title: string
@@ -45,6 +62,11 @@ export interface Task {
   plannedFor: DateKey | null
   order: number
   focusMinutes: number
+  owner: Owner
+  ownerSource: OwnerSource
+  /** short explanation, e.g. "Phone call → needs you" */
+  sortReason: string
+  agent?: AgentState
   demo?: boolean
 }
 
@@ -86,6 +108,7 @@ export type ViewId =
   | { kind: 'logbook' }
   | { kind: 'matrix' }
   | { kind: 'board' }
+  | { kind: 'delegation' }
   | { kind: 'project'; id: string }
 
 export interface Filters {
@@ -96,3 +119,19 @@ export interface Filters {
 }
 
 export type TaskDraft = Partial<Omit<Task, 'id' | 'createdAt' | 'order'>> & { title: string }
+
+/** A file an agent writes to `piles/results/<taskId>.json`, as served by the dev bridge. */
+export interface AgentResult {
+  taskId: string
+  status: 'review' | 'returned' | 'working'
+  by: AgentRole
+  /** markdown deliverable */
+  output?: string
+  note?: string
+  /** a manager may hand a task to the junior pile, or anyone may hand it back to the human */
+  owner?: Owner
+  /** subtasks proposed by the agent; appended if not already present */
+  subtasks?: string[]
+  /** result file name (set by the bridge) */
+  file?: string
+}

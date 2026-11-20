@@ -3,6 +3,13 @@ import { AnimatePresence, motion } from 'motion/react'
 import {
   Battery,
   BatteryFull,
+  Check,
+  CircleCheck,
+  Copy,
+  CornerUpLeft,
+  Hand,
+  Lock,
+  Users,
   CalendarDays,
   Clock,
   Flag,
@@ -16,8 +23,8 @@ import {
   Trash2,
   X,
 } from 'lucide-react'
-import type { Energy, Priority, Task } from '../lib/types'
-import { cn, formatMinutes, PRIORITY_META, todayKey } from '../lib/utils'
+import type { Energy, Owner, Priority, Task } from '../lib/types'
+import { cn, formatMinutes, modKey, PRIORITY_META, todayKey } from '../lib/utils'
 import { clampInterval, MAX_INTERVAL, RECURRENCE_OPTIONS } from '../lib/recurrence'
 import { completeTask, deleteTask } from '../lib/actions'
 import { useStore } from '../store/useStore'
@@ -25,6 +32,10 @@ import { useUI } from '../store/useUI'
 import { Modal } from './Modal'
 import { Checkbox } from './Checkbox'
 import { Button, inputCls, Kbd, Segmented } from './ui'
+import { classify } from '../lib/delegate'
+import { toast } from 'sonner'
+import { AgentStatusPill, OWNER_META, OwnerGlyph } from './Owner'
+import { Markdown } from './Markdown'
 
 export function TaskDetail() {
   const editingId = useUI((s) => s.editingId)
@@ -177,7 +188,10 @@ function DetailBody({ task }: { task: Task }) {
           aria-label="Notes"
         />
 
+        {task.agent?.output && <AgentOutput task={task} />}
+
         <div className="mt-2 border-t border-line pt-3">
+          <OwnerRow task={task} />
           <Row icon={<CalendarDays />} label="Due">
             <div className="flex gap-2">
               <input
@@ -428,6 +442,228 @@ function DetailBody({ task }: { task: Task }) {
         </Button>
       </div>
     </>
+  )
+}
+
+const OWNERS: Owner[] = ['human', 'manager', 'junior']
+
+function OwnerRow({ task }: { task: Task }) {
+  const setOwner = useStore((s) => s.setOwner)
+  const resetOwner = useStore((s) => s.resetOwner)
+  const projects = useStore((s) => s.projects)
+  const locked = classify({ title: task.title, tags: task.tags, project: projects.find((p) => p.id === task.projectId)?.name }).locked
+  return (
+    <div className="grid grid-cols-[112px_1fr] items-start gap-3 py-1.5">
+      <div className="flex h-7 items-center gap-2 text-xs text-faint [&>svg]:size-3.5">
+        <Users />
+        Owner
+      </div>
+      <div className="min-w-0">
+        <Segmented<Owner>
+          size="sm"
+          className="w-full max-w-[320px]"
+          value={task.owner}
+          onChange={(o) => {
+            const r = setOwner(task.id, o)
+            if (!r.ok) toast.error('This one stays with you', { description: `${r.reason}. Agents can’t take it.` })
+          }}
+          options={OWNERS.map((o) => ({
+            value: o,
+            title: o !== 'human' && locked ? 'Human-only task' : OWNER_META[o].long,
+            label: (
+              <span className={cn('inline-flex items-center gap-1.5', o !== 'human' && locked && 'opacity-45')}>
+                {/* glyphs only where the drawer is wide enough; phones get the compact labels */}
+                <OwnerGlyph owner={o} size={14} tip={null} className="hidden sm:inline-flex" />
+                {OWNER_META[o].short}
+              </span>
+            ),
+          }))}
+        />
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-faint">
+          {task.agent && task.owner !== 'human' && <AgentStatusPill status={task.agent.status} />}
+          {locked && <Lock className="size-3" aria-label="Human only" />}
+          <span className="min-w-0">{task.sortReason}</span>
+          <span className="text-faint/70">·</span>
+          {task.ownerSource === 'manual' ? (
+            <button onClick={() => resetOwner(task.id)} className="text-muted underline-offset-2 hover:text-fg hover:underline">
+              Set by you · reset to auto
+            </button>
+          ) : (
+            <span>Auto-sorted</span>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function AgentOutput({ task }: { task: Task }) {
+  const approve = useStore((s) => s.approveAgent)
+  const sendBack = useStore((s) => s.sendBackAgent)
+  const takeOver = useStore((s) => s.takeOver)
+  const [sending, setSending] = useState(false)
+  const [note, setNote] = useState('')
+  const noteRef = useRef<HTMLTextAreaElement>(null)
+  // autoFocus is unreliable inside the drawer's focus scope while the panel animates in
+  useEffect(() => {
+    if (sending) requestAnimationFrame(() => noteRef.current?.focus())
+  }, [sending])
+  const agent = task.agent!
+  const by = agent.by ?? (task.owner === 'junior' ? 'junior' : 'manager')
+  const status = agent.status
+  const tone = status === 'approved' ? 'var(--success)' : status === 'returned' ? 'var(--cho)' : status === 'review' ? 'var(--accent)' : 'var(--text-faint)'
+  const done = task.status === 'done'
+
+  return (
+    <motion.section
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.36, ease: [0.16, 1, 0.3, 1] }}
+      aria-label="Agent output"
+      className="mt-3 overflow-hidden rounded-card border"
+      style={{
+        borderColor: `color-mix(in srgb, ${tone} 32%, var(--border))`,
+        background: `linear-gradient(180deg, color-mix(in srgb, ${tone} 7%, transparent), transparent 120px), var(--surface)`,
+        boxShadow: status === 'review' ? `0 0 0 1px color-mix(in srgb, ${tone} 10%, transparent), 0 12px 32px -18px color-mix(in srgb, ${tone} 60%, transparent)` : undefined,
+      }}
+    >
+      <header className="flex flex-wrap items-center gap-2 border-b border-line px-3.5 py-2.5">
+        <OwnerGlyph owner={by} size={18} tip={null} />
+        <div className="min-w-0 flex-1">
+          <div className="text-[12.5px] font-medium text-fg">Agent output</div>
+          <div className="tnum text-[11px] text-faint">
+            {OWNER_META[by].label} · {new Date(agent.updatedAt).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}
+          </div>
+        </div>
+        <AgentStatusPill status={status} />
+        <button
+          aria-label="Copy output"
+          title="Copy markdown"
+          onClick={() => {
+            void navigator.clipboard?.writeText(agent.output ?? '').then(() => toast('Copied', { duration: 1400 }))
+          }}
+          className="press inline-flex size-7 items-center justify-center rounded-ctl text-faint hover:bg-surface-hover hover:text-fg"
+        >
+          <Copy className="size-3.5" />
+        </button>
+      </header>
+
+      {agent.note && (
+        <div
+          className="mx-3.5 mt-3 rounded-row border px-3 py-2 text-[12px] leading-relaxed text-muted"
+          style={{ borderColor: `color-mix(in srgb, ${tone} 25%, var(--border))`, background: `color-mix(in srgb, ${tone} 6%, transparent)` }}
+        >
+          <span className="font-medium text-fg">{status === 'queued' ? 'Your feedback: ' : status === 'returned' ? 'Why it’s back: ' : 'Note: '}</span>
+          {agent.note}
+        </div>
+      )}
+
+      <div className="max-h-[420px] overflow-y-auto px-3.5 py-3">
+        <Markdown source={agent.output ?? ''} />
+      </div>
+
+      <AnimatePresence initial={false} mode="wait">
+        {sending ? (
+          <motion.div
+            key="send"
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className="overflow-hidden border-t border-line"
+          >
+            <div className="p-3">
+              <textarea
+                ref={noteRef}
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && note.trim()) {
+                    sendBack(task.id, note)
+                    setSending(false)
+                    toast('Sent back to the agent', { description: 'Queued with your note for the next run.' })
+                  }
+                }}
+                placeholder="What should change? e.g. “Shorter, and lead with the price.”"
+                className={cn(inputCls, 'field-sizing-content h-auto min-h-[64px] resize-none py-2 text-[13px]')}
+                aria-label="Feedback for the agent"
+              />
+              <div className="mt-2 flex items-center justify-end gap-1.5">
+                <Button size="sm" variant="ghost" onClick={() => setSending(false)}>
+                  Cancel
+                </Button>
+                <Button
+                  size="sm"
+                  variant="primary"
+                  disabled={!note.trim()}
+                  kbd={`${modKey}↵`}
+                  onClick={() => {
+                    sendBack(task.id, note)
+                    setSending(false)
+                    toast('Sent back to the agent', { description: 'Queued with your note for the next run.' })
+                  }}
+                >
+                  Send back
+                </Button>
+              </div>
+            </div>
+          </motion.div>
+        ) : (
+          <motion.div key="actions" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-wrap items-center gap-1.5 border-t border-line px-3 py-2.5">
+            {status === 'review' && (
+              <>
+                <Button
+                  size="sm"
+                  variant="primary"
+                  icon={<Check className="size-3.5" />}
+                  onClick={() => {
+                    approve(task.id)
+                    toast.success('Approved', { description: 'The task stays open until you mark it complete.' })
+                  }}
+                >
+                  Approve
+                </Button>
+                <Button size="sm" variant="secondary" icon={<CornerUpLeft className="size-3.5" />} onClick={() => setSending(true)}>
+                  Send back
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  icon={<Hand className="size-3.5" />}
+                  onClick={() => {
+                    takeOver(task.id)
+                    toast('You took it over', { description: 'Moved to your pile. The draft stays here for reference.' })
+                  }}
+                >
+                  Take it over
+                </Button>
+              </>
+            )}
+            {status === 'approved' && (
+              <>
+                <span className="inline-flex items-center gap-1.5 text-xs text-success">
+                  <CircleCheck className="size-3.5" /> Approved
+                </span>
+                {!done && (
+                  <Button size="sm" variant="secondary" className="ml-auto" icon={<Check className="size-3.5" />} onClick={() => completeTask(task.id)}>
+                    Mark complete
+                  </Button>
+                )}
+              </>
+            )}
+            {status === 'returned' && (
+              <span className="text-xs text-muted">
+                Back in <span style={{ color: 'var(--cho)' }}>your pile</span>. Use the draft above, or reassign it with Owner below.
+              </span>
+            )}
+            {(status === 'queued' || status === 'working') && (
+              <span className="text-xs text-faint">
+                {status === 'queued' ? 'Waiting for the next agent run' : 'The agent is working on a revision'}. Previous output shown for reference.
+              </span>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </motion.section>
   )
 }
 

@@ -20,11 +20,16 @@ import {
   Sunset,
   Timer,
   Upload,
+  Users,
+  RefreshCw,
+  FileDown,
 } from 'lucide-react'
 import type { ViewId } from '../lib/types'
 import { cn, compareTasks, dueLabel, isOpen } from '../lib/utils'
 import { parseQuickAdd } from '../lib/parse'
 import { completeTask, downloadExport, pickImport } from '../lib/actions'
+import { downloadAllPiles } from '../lib/bridge'
+import { toast } from 'sonner'
 import { useStore } from '../store/useStore'
 import { useUI } from '../store/useUI'
 import { Modal } from './Modal'
@@ -67,6 +72,12 @@ const COMMAND_WORDS = [
   'matrix',
   'kanban board',
   'board',
+  'delegation',
+  'delegate',
+  'agents',
+  'piles',
+  're-sort delegation piles',
+  'export piles',
 ]
 
 export function CommandPalette() {
@@ -132,6 +143,7 @@ function PaletteBody() {
             estimate: parsed.estimate,
             projectId,
             recurrence: parsed.recurrence,
+            owner: parsed.owner ?? undefined,
           })
         })}
       >
@@ -233,6 +245,21 @@ function PaletteBody() {
                 onSelect={run(toggleTheme)}
                 keywords={['theme', 'dark', 'light', 'appearance']}
               />
+              <Item
+                icon={<RefreshCw />}
+                label="Re-sort delegation piles"
+                onSelect={run(() => {
+                  const n = useStore.getState().resortAll()
+                  toast(n ? `Re-sorted · ${n} task${n === 1 ? '' : 's'} changed pile` : 'Re-sorted · every pile was already right')
+                })}
+                keywords={['delegation', 'agents', 'auto-sort', 'piles']}
+              />
+              <Item
+                icon={<FileDown />}
+                label="Export piles for Claude Code"
+                onSelect={run(downloadAllPiles)}
+                keywords={['delegation', 'agents', 'queue', 'markdown']}
+              />
               <Item icon={<Download />} label="Export backup (JSON)" onSelect={run(downloadExport)} />
               <Item icon={<Upload />} label="Import backup…" onSelect={run(pickImport)} />
               <Item icon={<Keyboard />} label="Keyboard shortcuts" kbd="?" onSelect={run(() => open('shortcuts'))} />
@@ -253,6 +280,13 @@ function PaletteBody() {
               />
               <Item icon={<Grid2x2 />} label="Eisenhower matrix" kbd="G M" onSelect={() => go({ kind: 'matrix' })} />
               <Item icon={<SquareKanban />} label="Kanban board" kbd="G B" onSelect={() => go({ kind: 'board' })} />
+              <Item
+                icon={<Users />}
+                label="Delegation"
+                kbd="G A"
+                onSelect={() => go({ kind: 'delegation' })}
+                keywords={['agents', 'delegate', 'piles', 'manager', 'junior', 'chief human officer']}
+              />
               {projects.map((p) => (
                 <Item
                   key={p.id}

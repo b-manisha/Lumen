@@ -13,6 +13,7 @@ const GO: Record<string, ViewId> = {
   l: { kind: 'logbook' },
   m: { kind: 'matrix' },
   b: { kind: 'board' },
+  a: { kind: 'delegation' },
 }
 
 /** Global keyboard layer: ⌘K, Q, G-chords, J/K selection, X/E/1-4/⌫, P, F, ⇧S, ⇧T, ⌘Z, ?, /. */

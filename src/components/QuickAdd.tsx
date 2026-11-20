@@ -1,8 +1,9 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
-import { Battery, BatteryFull, CalendarDays, Clock, CornerDownLeft, Flag, Folder, Hash, Plus, Repeat } from 'lucide-react'
+import { Battery, BatteryFull, Bot, BrainCircuit, CalendarDays, Clock, CornerDownLeft, Crown, Flag, Folder, Hash, Plus, Repeat } from 'lucide-react'
 import { toast } from 'sonner'
-import { parseQuickAdd, type ParsedToken, type TokenKind } from '../lib/parse'
+import { OWNER_TOKEN_LABEL, parseQuickAdd, type ParsedToken, type TokenKind } from '../lib/parse'
+import { classify } from '../lib/delegate'
 import type { Task } from '../lib/types'
 import { cn, todayKey } from '../lib/utils'
 import { EXPO_OUT } from '../lib/motion'
@@ -17,6 +18,13 @@ const TOKEN_STYLE: Record<TokenKind, { color: string; icon: ReactNode }> = {
   estimate: { color: 'var(--info)', icon: <Clock /> },
   project: { color: '#E879F9', icon: <Folder /> },
   recurrence: { color: '#2DD4BF', icon: <Repeat /> },
+  owner: { color: 'var(--cho)', icon: <Crown /> },
+}
+
+function tokenIcon(t: ParsedToken): ReactNode {
+  if (t.kind === 'energy' && t.label.startsWith('Low')) return <Battery />
+  if (t.kind === 'owner') return t.label === OWNER_TOKEN_LABEL.manager ? <BrainCircuit /> : t.label === OWNER_TOKEN_LABEL.junior ? <Bot /> : <Crown />
+  return TOKEN_STYLE[t.kind].icon
 }
 
 function tokenColor(t: ParsedToken) {
@@ -26,6 +34,7 @@ function tokenColor(t: ParsedToken) {
     if (t.label.startsWith('P4')) return 'var(--p4)'
   }
   if (t.kind === 'energy' && t.label.startsWith('Low')) return 'var(--info)'
+  if (t.kind === 'owner') return t.label === OWNER_TOKEN_LABEL.manager ? 'var(--mgr)' : t.label === OWNER_TOKEN_LABEL.junior ? 'var(--jr)' : 'var(--cho)'
   return TOKEN_STYLE[t.kind].color
 }
 
@@ -63,6 +72,10 @@ export function QuickAdd({ autoFocus, defaults, onCreated, onEscape, variant = '
     }
     let projectId = parsed.projectId ?? defaults?.projectId ?? null
     if (!projectId && parsed.newProjectName) projectId = addProject(parsed.newProjectName)
+    const owner = parsed.owner ?? defaults?.owner
+    const projectName = projects.find((p) => p.id === projectId)?.name ?? parsed.newProjectName
+    const sorted = classify({ title: parsed.title, tags: parsed.tags.length ? parsed.tags : (defaults?.tags ?? []), project: projectName })
+    const refused = owner && owner !== 'human' && sorted.locked
     const id = addTask({
       ...defaults,
       title: parsed.title,
@@ -74,10 +87,12 @@ export function QuickAdd({ autoFocus, defaults, onCreated, onEscape, variant = '
       estimate: parsed.estimate,
       projectId,
       recurrence: parsed.recurrence,
+      owner: owner ?? undefined,
       // a future date beats the "planned for today" default of the current view
       plannedFor: parsed.due && parsed.due > todayKey() ? null : (defaults?.plannedFor ?? null),
     })
-    toast.success('Task added', { description: parsed.title })
+    if (refused) toast('Added to your pile', { description: `${sorted.reason}. Agents can’t take this one.` })
+    else toast.success('Task added', { description: parsed.title })
     setValue('')
     onCreated?.(id)
   }
@@ -203,13 +218,14 @@ export function QuickAdd({ autoFocus, defaults, onCreated, onEscape, variant = '
                   <Hint k="~low">energy</Hint>
                   <Hint k="~30m">estimate</Hint>
                   <Hint k="every mon">repeat</Hint>
+                  <Hint k="^jr">delegate</Hint>
                 </div>
               ) : (
                 <>
                   <AnimatePresence mode="popLayout" initial={false}>
                     {parsed.tokens.map((t) => {
                       const color = tokenColor(t)
-                      const Icon = t.kind === 'energy' && t.label.startsWith('Low') ? <Battery /> : TOKEN_STYLE[t.kind].icon
+                      const Icon = tokenIcon(t)
                       return (
                         <motion.span
                           layout

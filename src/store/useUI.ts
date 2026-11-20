@@ -43,6 +43,7 @@ export function hashToView(hash: string): ViewId {
     case 'logbook':
     case 'matrix':
     case 'board':
+    case 'delegation':
       return { kind }
     case 'project':
       return id ? { kind: 'project', id } : { kind: 'dashboard' }

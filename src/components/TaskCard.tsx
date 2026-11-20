@@ -1,4 +1,4 @@
-import { forwardRef, type HTMLAttributes } from 'react'
+import { forwardRef, type HTMLAttributes, type ReactNode } from 'react'
 import { CalendarDays, Flag, ListChecks, Repeat, Timer } from 'lucide-react'
 import type { Task } from '../lib/types'
 import { cn, daysFromToday, dueLabel, formatMinutes, PRIORITY_META } from '../lib/utils'
@@ -7,15 +7,21 @@ import { useStore } from '../store/useStore'
 import { useUI } from '../store/useUI'
 import { Checkbox } from './Checkbox'
 import { localDay } from '../hooks/useDerived'
+import { OwnerGlyph, OWNER_META } from './Owner'
+import { AGENT_STATUS_LABEL } from '../lib/piles'
 
 interface Props extends HTMLAttributes<HTMLDivElement> {
   task: Task
   dragging?: boolean
   overlay?: boolean
+  /** extra content under the meta row (e.g. delegation reason + agent status) */
+  footer?: ReactNode
+  /** show the small owner glyph (off in the Delegation view, where the column says it) */
+  showOwner?: boolean
 }
 
 /** Compact card used by the Kanban board and Eisenhower matrix. */
-export const TaskCard = forwardRef<HTMLDivElement, Props>(function TaskCard({ task, dragging, overlay, className, style, ...rest }, ref) {
+export const TaskCard = forwardRef<HTMLDivElement, Props>(function TaskCard({ task, dragging, overlay, footer, showOwner = true, className, style, ...rest }, ref) {
   const project = useStore((s) => (task.projectId ? s.projects.find((p) => p.id === task.projectId) : undefined))
   const edit = useUI((s) => s.edit)
   const startFocus = useUI((s) => s.startFocus)
@@ -53,6 +59,13 @@ export const TaskCard = forwardRef<HTMLDivElement, Props>(function TaskCard({ ta
         )}
       </div>
       <div className="mt-2.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 pl-[26px] text-[11px] text-faint">
+        {showOwner && (
+          <OwnerGlyph
+            owner={task.owner}
+            size={15}
+            tip={`${OWNER_META[task.owner].label}${task.agent ? ` · ${AGENT_STATUS_LABEL[task.agent.status]}` : ''}`}
+          />
+        )}
         {project && (
           <span className="inline-flex items-center gap-1.5">
             <span className="size-1.5 rounded-full" style={{ background: project.color }} />
@@ -94,6 +107,7 @@ export const TaskCard = forwardRef<HTMLDivElement, Props>(function TaskCard({ ta
           </button>
         )}
       </div>
+      {footer && <div className="mt-2.5 pl-[26px]">{footer}</div>}
       {task.subtasks.length > 0 && (
         <div className="mt-2.5 ml-[26px] h-[3px] overflow-hidden rounded-full bg-[color-mix(in_srgb,var(--text)_6%,transparent)]">
           <div

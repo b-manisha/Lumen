@@ -19,3 +19,7 @@ npm-debug.log*
 
 # Lumen JSON exports
 lumen-backup-*.json
+
+# Delegation piles: personal task data written by the dev bridge (keep only the format docs)
+piles/*
+!piles/README.md
